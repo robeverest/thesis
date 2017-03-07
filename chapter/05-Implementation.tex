@@ -1,0 +1,1207 @@
+\chapter{Implementation}
+\TODO{REVISE!}
+\section{Implementing Irregular Sequence Computations}
+\label{sec:executing_sequence_computations}
+\label{sec:Vectorisation}
+
+To efficiently implement irregular sequence computations, we need to address two requirements: (1) we need to get the irregular data-parallelism into a form where it can be efficiently executed on SIMD hardware; and (2) we need to schedule sequence computations, such that they utilise parallelism as much as possible without exceeding the resource constraints (such as memory limits) of the concrete hardware. The remainder of this section is addressing the first item by building on \citet{Blelloch:compiling1988}'s \emph{flattening transformation} ---also known as \emph{vectorisation}--- to statically turn irregular, nested data-parallel code into flat data-parallel code operating on regular structures. On the basis of this transformed code, Section~\ref{sec:scheduling} outlines the dynamic scheduler addressing the second item.
+
+\citet{Blelloch:compiling1988}'s original version of the flattening transformation was for a first-order language with built-in second-order combinators (called Nesl), which makes it a good fit for our embedded array language.\footnote{While the host language, Haskell, is higher-order, the \emph{embedded} Accelerate language is not.} Nevertheless, the original transformation has two severe shortcomings, which make the generated code non-competitive: (1) it vectorises code that ought to remain as is for best performance; and (2) it doesn't treat the important special case of operations on regular multi-dimensional arrays specially. We address point (1) by adapting the work on \emph{vectorisation avoidance}~\citep{Keller:avoidance}, and tackle point (2) with a novel generalisation of vectorisation that explicitly distinguishes between regular and irregular computations, to generate efficient code for the former. Moreover, our transformation is, in contrast to previous work, type-preserving.
+
+\subsection{Flattening with preservation of regularity and vectorisation avoidance}
+\label{sec:flattening}
+
+As discussed in the previous section, a sequence computation @Seq [Array sh b]@ adds a second level of nested, irregular data-parallelism on top of the flat regular parallelism of an array computation @Acc (Array sh b)@. Hence, we can generally regard such a sequence computation as a mapping of a flat, regular function @f@ over an irregular sequence @xs@:
+%
+\begin{lstlisting}
+Seq [Array sh b]  %$\sim$%  mapSeq f xs
+  where
+    f  :: Acc (Array sh' a) -> Acc (Array sh b)
+    xs :: Seq [Array sh' a]
+\end{lstlisting}
+%
+In addition to the \emph{inner-function} parallelism in @f@, we want to
+exploit as much of the parallelism of the outer @mapSeq@ (the \emph{intra-function} parallelism) as possible on a
+given architecture to achieve optimal performance. That is, we execute multiple ---but not necessarily \emph{all}--- elements of the @mapSeq@ in
+parallel. Avoiding the need to utilise all outer parallelism helps us to support out-of-core datasets on GPUs, by only loading into
+device memory those elements of the stream @xs@ that are processed together. By
+dynamically adjusting the number of elements operated on at once, we aim to
+minimise memory usage while aiming to keep all processing elements fully utilised. The flattening transformation takes the definition of the function @f@ and rewrites it to a definition for @f@$^\uparrow$, such that semantically @f@$^\uparrow$@ = mapSeq f@; in other words, @f@$^\uparrow$ can process multiple elements of @xs@ at once, in parallel.
+
+\paragraph{Preservation of regularity.} Computations on regular, multi-dimensional arrays are usually much more efficient than performing the same computations on nested, potentially irregular structures. In other words, the mere ability to handle irregular structures presents a significant runtime overhead, even if it is never used. Hence, it is crucial for our variant of flattening to preserve regularity. For example, consider the following definition for a regular version of @f@, performing a parallel sum across the innermost dimension of a two-dimensional array:
+%
+\begin{lstlisting}
+f :: Shape sh => Acc (Array DIM2 Double) -> Acc (Array DIM1 Double)
+f = fold (+) 0
+\end{lstlisting}
+%
+The definition makes use of the built-in Accelerate combinator:
+%
+\begin{lstlisting}
+fold :: (Shape sh, Elt e)
+     => (Exp e -> Exp e -> Exp e)
+     -> Exp e
+     -> Acc (Array (sh :. Int) e)
+     -> Acc (Array sh e)
+\end{lstlisting}
+%
+Regarding the dimensionality of the input array, the shape argument of the
+@Array@ type constructor gets stripped of one dimension during the reduction;
+that is, the type goes from @(sh :. Int)@ to @sh@. We refer to @fold@ as a
+shape-polymorphic function~\citep{Keller:Repa}.
+
+Now, let us assume the stream @xs@ is regular; i.e, all arrays in @xs@ have the same extent (the same size in every dimension of the shape @sh@). In that case, we can store multiple elements of the stream in a single array whose dimensionality is one greater --- i.e., a chunk of arrays from the stream @xs@, where each array has dimensionality $n$ can be represented by an array of dimensionality $n+1$. Thus, we can simply vectorise @f@ by \emph{merely changing its type}:
+%
+\begin{lstlisting}
+f%$^\uparrow_{\textit{reg}}$% :: Acc (Array DIM3 Double) -> Acc (Array DIM2 Double)
+f%$^\uparrow_{\textit{reg}}$% = fold (+) 0
+\end{lstlisting}
+%
+This is possible since @fold@ is shape polymorphic ---and so operates on an
+array of any dimensionality greater than one--- and because shapes are defined
+inductively, so that we have:
+%
+\begin{lstlisting}
+type DIM0 = Z
+type DIM1 = DIM0 :. Int
+type DIM2 = DIM1 :. Int
+type DIM3 = DIM2 :. Int
+\end{lstlisting}
+
+As previously indicated, matters get more involved in the case of an irregular stream @xs@. In that case, we can no longer represent chunks of a stream of arrays of dimension $n$ as an array of dimension $n+1$. Instead, we need to move to a more sophisticated representation that decomposes the chunk of arrays into a \emph{flat data vector} (containing all the array elements) together with a, so-called, \emph{segment descriptor} that describes how the individual array elements are distributed over the various arrays in the chunk. The type for segment descriptors in Accelerate is @Segments sh@ which describes the structure of a chunk of arrays of shape @sh@. (Its concrete representation is orthogonal to the work presented here, so we will keep it abstract.)
+
+On that basis, the definition of @f@ vectorised for processing of an irregular stream is:
+%
+\begin{lstlisting}
+f%$^\uparrow_{\textit{irreg}}$% :: Acc (Segments DIM2, Vector Double) -> Acc (Segments DIM1, Vector Double)
+f%$^\uparrow_{\textit{irreg}}$% xsChunk =
+  let (segs, vals) = xsChunk
+  in fold%$_{\textit{seg}}$% (+) 0 vals segs
+\end{lstlisting}
+%
+where we use an irregular variant of @fold@ based on segment descriptors which has the type:
+%
+\begin{lstlisting}
+fold%$_{\textit{seg}}$% :: (Elt a, Shape sh)
+       %\,%=> (Exp a -> Exp a -> Exp a)
+       %\,%-> Exp a
+       %\,%-> Acc Vector a
+       %\,%-> Acc (Segments (sh :. Int))
+       %\,%-> Acc (Segments sh, Vector a)
+\end{lstlisting}
+\begin{lstlisting}
+\end{lstlisting}
+%
+The implementation of @foldSeg@ is significantly more expensive than that of @fold@. Moreover, maintaining and passing around of the segment descriptors is an additional overhead. Clearly, we want to incur this only when necessary; i.e., when the processed stream is actually irregular.
+
+\paragraph{Vectorisation avoidance.} Even in the case of an entirely regular computation, we need to be careful to avoid inefficiencies due to vectorisation. As a simple example, consider this scalar function:
+%
+\begin{lstlisting}
+average :: Exp Double -> Exp Double -> Exp Double
+average x y = (x + y) / 2
+\end{lstlisting}
+%
+Vectorisation of this code takes each subcomputation from a scalar to a vector-valued function and replicates constants according to the size of the argument vectors:
+%
+\begin{lstlisting}
+average%$^\uparrow$% :: Acc (Vector Double) -> Acc (Vector Double) -> Acc (Vector Double)
+average%$^\uparrow$% xs ys = zipWith (/) (zipWith (+) xs ys) (replicate (Z :. length xs) 2)
+\end{lstlisting}
+%
+This code, while reasonable for execution on a GPU (with the exception of the use of @replicate@), is not efficient for the CPU due to the excessive array traversals and superfluous intermediate structures. In this simple example, fusion optimisations can improve the code, but more generally we will arrive at better code when vectorisation directly \emph{avoids} vectorising purely scalar subexpressions, and generates the following code instead:
+%
+\begin{lstlisting}
+average%$^\uparrow_{\textit{avoid}}$% :: Acc (Vector Double) -> Acc (Vector Double) -> Acc (Vector Double)
+average%$^\uparrow_{\textit{avoid}}$% xs ys = zipWith (\x y -> (x + y) / 2) xs ys
+\end{lstlisting}
+
+The concrete vectorisation transformation presented in the rest of this section avoids the vectorisation of purely scalar subexpressions and preserves regularity, where vectorisation is over a regular domain.
+
+% %
+% % With this intuition, we can see that we have some freedom in how exactly we
+% % can execute the computation. We can execute
+% % the @map@ sequentially, only exploiting the intra-function parallelism
+% % of @f@. If the elements of the input array @xs@ are small, though,
+% % there may not be enough parallelism to saturate all of the
+% % processors. Alternatively, we can fully exploit the parallelism in this
+% % computation, by computing applications of @f@ by
+% % @map@ in parallel. On a SIMD architecture, this second option requires
+% % some form of  flattening transformation~\citep{Blelloch:compiling1988}, also known as
+% % \emph{vectorisation}.  A well known drawback of this approach is that it can expose more parallelism than can be
+% % exploited by the architecture. Even more problematic, it requires all elements of the input @xs@ to
+% % be resident in memory, which might simply be impossible.
+
+
+
+% %Therefore we opt for a middle-ground; a variant of vectorisation where
+
+% % \noindent\tlm{also, may want to mention regularisation?}
+
+
+
+% \subsection{Example \#1: Lifting Regular Sequences} % Regular lifting
+
+% Example @foo@ from below the line.
+
+% \subsection{Example \#2: Lifting Irregular Sequences} % Irregular lifting
+
+% Example @bar@ from below the line.
+
+% \begin{lstlisting}
+% produce :: Arrays a
+%         => Exp Int
+%         -> (Acc (Scalar Int) -> Acc a)
+%         -> Seq [a]
+%       \end{lstlisting}
+
+
+% \tlm{after reading this I feel dumb... ):}
+% \hrulefill
+
+% %GCK: same as above
+% % There are 3 possible ways of executing sequence computations. One element at a time, all elements at once in parallel, or in chunks of a few elements. The first of these is easy to implement, but does not offer the parallel performance we want when there is minimal parallelism available for each element. The second can be implemented with \emph{vectorisation}, but does not support infinite sequences and, more importantly, offers no benefit over arrays in terms of space usage. We opt for the third choice. This requires vectorisation, but also a means by which to decide how many elements of a sequence to compute at a time.
+
+% Putting aside the issue of the number of elements, it is important that we clearly define what we mean by vectorisation in this case. If we take @produce@ as an example and supposing we have a term of the form
+
+% \begin{lstlisting}
+% produce i f
+% \end{lstlisting}
+
+% we know that @i@ by nature of being of type @Exp Int@, does not contain any parallel operations. The same is not true for @f@, however. By being of type @Exp Int -> Acc a@ it can, and most usefully does, contain parallel operations. While only being of one level, this form of nested parallelism is not trivially mappable to GPU kernels. We solve this by use of an extended version of Blelloch's flattening transform\citep{Blelloch:compiling1988}.
+
+% We will first demonstrate this by example.
+
+% \begin{lstlisting}
+% foo = produce 5 (\i -> generate (index1 3) (\ix -> the i + unindex1 ix))
+% \end{lstlisting}
+
+% This should produce a sequence of the form
+
+% \begin{lstlisting}
+% [ {0,1,2}, {1,2,3}, {2,3,4}, {3,4,5}, {4,5,6} ]
+% \end{lstlisting}
+
+% However, we don't want to be computing the elements of the sequence one at a time so In order to execute this in parallel, we need to \emph{lift} the function passed to produce to a higher rank. We do this by performing a simple transformation.
+
+% Starting with,
+
+% \begin{lstlisting}
+% (\i -> generate (index1 3) (\ix -> the i + unindex1 ix))
+%   :: Acc (Scalar Int) -> Acc (Vector Int)
+% \end{lstlisting}
+
+% we need something of type
+
+% \begin{lstlisting}
+% (\i' -> ?) :: Acc (Vector Int) -> Acc (Array DIM2 Int)
+% \end{lstlisting}
+
+% we observe that the first argument to generate is closed term, hence in order to lift it to a higer dimension it is simply a matter of replicating it out to the size it needs to be. In this case, the length of @i'@
+
+% \begin{lstlisting}
+% replicate (Z :. length i) (index1 3)
+% \end{lstlisting}
+
+% The second argument to generate, however, is not closed, owing to the fact it contains a reference to @i@. As such, we need to traverse this term. We lift each scalar function into its vector equivalent such that we can use the new lifted @i'@.
+
+% \begin{lstlisting}
+% (\ix' -> zipWith (+) i' (map unindex1 ix'))
+%   :: Acc (Vector (Z:.Int)) ->  Acc (Vector Int)
+% \end{lstlisting}
+
+% Observe that the variable bound by the lambda @ix@ has also been lifted into @ix'@.
+
+% Putting it together, we are able to calculate as many and whichever elements of @foo@ with @foo'@
+
+% \begin{lstlisting}
+% foo' i' = (\ix' -> zipWith (+) i' (map unindex1 ix')) $%$_R$% (replicate (Z :. length i) (index1 3))
+%   :: Acc (Vector Int) -> Acc (Array DIM2 Int)
+% \end{lstlisting}
+
+% The regular applicator, \lstinline[style=ndp]{$_R}, here allows us to take a function over vectors where the size of the output is always the same as the size of the input, and apply it to an array of any rank.
+
+% \begin{lstlisting}
+% $%$_R$% :: (Acc (Vector Int) -> Acc (Vector Int)) -> Acc (Array sh e) -> Acc (Array sh e)
+% $%$_R$% f a = reshape (shape a) (f (flatten a))
+% \end{lstlisting}
+
+% We refer to this process as \emph{vectorisation}. However, just in this example, the computation was strictly regular. If we instead have
+
+% \begin{lstlisting}
+% bar = produce 5 (\i -> generate (index1 i) unindex1)
+% \end{lstlisting}
+
+% We have to lift the function to a different representation. As the first argument of generate depends on @i@ we need to lift it.
+
+% \begin{lstlisting}
+% map index1 i'
+% \end{lstlisting}
+
+% If we look at the second argument we observe that it is closed. As such it does not need to be lifted, but it does need to be used in a lifted context. So we \emph{force} it to be lifted using @map@.
+
+% \begin{lstlisting}
+% map unindex1
+% \end{lstlisting}
+
+% We can combine these in these much the same way as we did for the previous example. However, we have to take into account the irregularity.
+
+% \begin{lstlisting}
+% bar' i' = let segs = makeSegments (map index1 i')
+%           in (segs, map unindex1 (enum%$_{Ir}$% segs))
+% \end{lstlisting}
+
+% We use \lstinline[style=ndp]{enum_Ir} to enumerate each segment described by segs.
+
+% \begin{lstlisting}
+% enum%$_{Ir}$% :: Segments sh -> Vector sh
+% \end{lstlisting}
+
+% What are the segments? We pick the segment descriptors popularisd by \TODO{citation} where
+
+% \begin{lstlisting}
+% type Segments = Vector (Int,sh)
+% \end{lstlisting}
+
+% However, it should be noted that the choice of segment representation is orthogonal to the work we present here.
+
+% In the following section we formalise this transformation.
+
+
+% If we wish to execute sequences a chunk at a time, we need to decide how we will represent a sequence chunk. If we borrow the lifted array representation popularised by \TODO{correct citation}, we end up with.
+
+% \begin{lstlisting}
+% type Chunk (Array sh e) = (Segments sh, Vector e)
+% type Chunk (a,b)        = (Chunk a, Chunk b)
+% type Chunk (a,b,c)      = (Chunk a, Chunk b, Chunk c)
+% ...
+% \end{lstlisting}
+
+% Where the segment descriptors are represented by a vector containing the offset and shape of each subarray.
+
+% \begin{lstlisting}
+% type Segments sh = (Vector (Int, sh))
+% \end{lstlisting}
+
+% The problem with this representation is that it fails to recognise when subarrays are the same size. This can be problematic as, when working with these chunks, there are a number of operations we perform that can be implemented more efficiently if we know each element of the chunk is the same size.
+
+% As an example, suppose we want to perform a @zipWith@ style operation over these chunks, @zipWithL@. What we want this function to do is take a binary scalar function and execute it as if we were performing a @zipWith@ over each pair of subarrays. Even if we assume there are the same number of subarrays in each chunk, we can't know the relation between the shapes of the subarrays.
+
+% \begin{lstlisting}
+% zipWithL :: (Exp a -> Exp b -> Exp c)
+%          -> Acc (Chunk (Array sh a))
+%          -> Acc (Chunk (Array sh b))
+%          -> Acc (Chunk (Array sh c))
+% \end{lstlisting}
+
+% How can we define this function? We do so via example. If these are our inputs, two chunks of vectors,
+
+% \begin{lstlisting}
+% xs = [ {a,b}, {c}, {d,e,f} ]
+% ys = [ {t,u}, {v, w}, {x,y,z} ]
+% \end{lstlisting}
+
+% they would be represented in this format as
+
+% \begin{lstlisting}
+% xs = ( {(0,2),(2,1),(3,3)}
+%      , {a,b,c,d,e,f} )
+% ys = ( {(0,2),(2,2),(4,3)}
+%      , {t,u,v,w,x,y,z} )
+% \end{lstlisting}.
+
+% To compute @zipWithL f xs ys@ for some @f@, we need to first build the segment descriptors then use that to help build the values. The \emph{extents} component of the segment descriptors we get by taking the intersection of the extents of the input segment descriptors. For extents of rank 1, this is just the minimum.
+
+% \begin{lstlisting}
+% {2,1,3}
+% \end{lstlisting}
+
+% For calculating the offsets we take the prefix sum (scan) of the extents we just calculated.
+
+% \begin{lstlisting}
+% {0,2,3}
+% \end{lstlisting}
+
+% It is worth noting that performing this @scan@ takes $O(n \log{p})$ work, where $n$ is the number of chunks and $p$ is the number of parallel processors. While this is an additional cost we would rather not pay, $n$ is typically significantly smaller than the length values vector, so that is where the cost is significant.
+
+% To calculate the values vector, we first have to compute a vector of indices for which to get the values from. We do this by writing into an array of pairs of zeroes the index of each segment at their corresponding offsets.
+
+% \begin{lstlisting}
+% {(0,0),(0,0),(1,0),(2,0),(0,0),(0,0)}
+% \end{lstlisting}
+
+% We can compute the missing values by performing a scan over this vector with this function
+
+% \begin{lstlisting}
+% merge x y =
+%   let (x_seg, x_ix) = unlift x
+%       (y_seg, y_ix) = unlift x
+%   in y_seg == 0 ? ( lift (x_seg, x_ix + y_ix + 1)
+%                   , lift (y_seg, y_ix)))
+% \end{lstlisting}
+
+% This results in,
+
+% \begin{lstlisting}
+% {(0,0),(0,1),(1,0),(2,0),(2,1),(2,2)}
+% \end{lstlisting}
+
+% We are then able to use this vector to index into both chunks and apply f.
+
+% \begin{lstlisting}
+% {(a .+ t),(b .+ u),(c .+ v),(d .+ x),(e .+ y),(f .+ z)}
+% \end{lstlisting}
+
+% This gives us a correct definition of @zipWithL@ (see~\ref{fig:zipWithL}).
+% However, in performing the second @scan@ we are introducing a $O(n \log{p})$ operation where $n$ is the number of scalar elements in total over all subarrays in the output chunk. This added complexity factor is unavoidable for
+% irregular chunks, but in the case where all subarrays in the chunk are of the same extent it is not needed. If we instead define our chunks regularly,
+
+% \begin{lstlisting}
+% type Chunk (Array sh e) = Array (sh:.Int) e
+% \end{lstlisting}
+
+% we can implement @zipWithL@ very simply.
+
+% \begin{lstlisting}
+% zipWithL = zipWith
+% \end{lstlisting}
+
+% \begin{figure}
+% \label{fig:zipWithL}
+% \begin{lstlisting}[mathescape]
+% zipWithL :: (Exp a -> Exp b -> Exp c)
+%          -> Acc (Chunk (Array sh a))
+%          -> Acc (Chunk (Array sh b))
+%          -> Acc (Chunk (Array sh c))
+% zipWithL (.+) as bs = lift (segs, vals)
+%   where
+%     extents              = zipWith intersect (map snd (fst as)) (map snd (fst bs))
+%     (offsets, totalSize) = scanl' (+) 0 (map shapeSize extents)
+%     segs                 = zip offsets extents
+
+%     n     = length segs
+%     heads = permute const
+%                     (zip (zeroes totalSize) (zeroes totalSize))
+%                     (index1 . offsets !)
+%                     (zip (enumTo (index1 n) 0) (zeroes n))
+%     indices = scanl1 merge heads
+%     merge x y =
+%       let (x_seg, x_ix) = unlift x
+%           (y_seg, y_ix) = unlift x
+%       in y_seg == 0 ? ( lift (x_seg, x_ix + y_ix + 1)
+%                       , lift (y_seg, y_ix)))
+
+%     vals = map (uncurry (\seg ix -> indexChunk as seg ix .+ indexChunk bs seg ix)) indices
+% \end{lstlisting}
+
+% \rob{I'm increasingly thinking we shouldn't give the complete definition of zipWithL. It's complicated and requires explaining too many prelude functions.}
+
+% \caption{Performing zipWith over arrays in irregular chunks.}
+% \end{figure}
+
+% \rob{Need to describe how the type level flattening function is now a relation}
+
+% We start by specifying the type level component of the program transformation.
+
+% Given that we want different array representations depending on the context in which they are used (regular or irregular), instead of treating the lifted representation as a function we rely upon a relation. Formally, we call this relation $\mathcal{F}$ and express it here as a GADT.
+
+
+\subsection{Lifted type relation}
+% \tlm{RCE: is this D.A.A.Array.Lifted.LiftedType?}
+% \rob{TLM: Yes, it's a simplified version of that.}
+% \gck{Rob - I changed the first Norm rule according to our email conv}
+
+Vectorisation is a type-directed transformation. Hence, we discuss the type transformations $\mathcal{N}$ and $\mathcal{V}$ before turning to the term transformation $\mathcal{L}$. We denote both type transformations in relational form as regular versus irregular vectorisation contexts give us a choice between different representations. As the concrete notation, we use Haskell's notation for generalised algebraic data types (GADTs)~\citep{Jones:2006eh}, which coincides with our concrete implementation in Accelerate.
+
+\paragraph{Normalisation.}
+The first type transformation, \lstinline[style=ndp]{Norm t t}$_{\textit{norm}}$, computes an array normal form @t@$_{\textit{norm}}$ of an Accelerate type @t@. Specifically, scalars of type @e@ (this includes tuples of scalar components) are wrapped in a singleton array of type @Array Z e@ (which is the same as @Scalar e@). Moreover, a regular $n$-dimensional array of regular $m$-dimensional arrays becomes an $n+m$-dimensional array.
+%
+\begin{lstlisting}[style=ndp]
+data Norm t t' where
+   Scalar :: IsScalar e
+          => Norm e (Array Z e)
+   Nest   :: Norm e (Array sh e')
+          -> Norm (Array Z e) (Array sh e')
+   Higher :: Norm (Array sh e) (Array sh' e')
+          -> Norm (Array (sh:.Int) e) (Array (sh':.Int) e')
+\end{lstlisting}
+%
+For example, one-dimensional arrays of one-dimensional arrays of @Double@s of type:
+%
+\begin{lstlisting}[style=ndp]
+Array DIM1 (Array DIM1 Double)
+\end{lstlisting}
+%
+we know, given @DIM1 = Z :. Int@, are the same as:
+%
+\begin{lstlisting}[style=ndp]
+Array (Z :. Int) (Array (Z :. Int) Double)
+\end{lstlisting}
+
+We normalise that type to two-dimensional arrays of type @Array DIM2 Double@, as witnessed by:
+%
+\begin{lstlisting}[style=ndp]
+Higher (Nest (Higher (Nest Scalar))) ::
+  Norm (Array (Z :. Int) (Array (Z :. Int) Double)) (Array (Z :. Int :. Int)  Double)
+\end{lstlisting}
+
+\paragraph{Vectorisation.}
+The second type relation, \lstinline[style=ndp]{Flat t t}$_{\textit{vect}}$, takes an Accelerate type to its vectorised form @t@$_{\textit{vect}}$ by first normalising @t@ by way of \lstinline[style=ndp]{Norm t t}$_{\textit{norm}}$, and then, adding another dimension to the normalised @t@$_{\textit{norm}}$. This last step is ambiguous (and, our reason for expressing the transformation relationally). If the enclosing data-parallel context is regular, we simply increase the dimensionality of @t@$_{\textit{norm}}$ by one. However, if the context is irregular, we need to introduce a segment descriptor as discussed in the previous subsection. These two cases are covered by the alternatives @Regular@ and @Irregular@ below:
+%
+\begin{lstlisting}[style=ndp]
+data Flat t t' where
+  Avoid     :: Flat t t                            -- avoid vectorisation
+  Regular   :: Norm t (Array sh e)                 -- regular context
+            -> Flat t (Array (sh:.Int) e)
+  Irregular :: Norm t (Array sh e)                 -- irregular context
+            -> Flat t (Segments sh, Vector e)
+  Tuple     :: (Flat t_1 t_1', Flat t_2 t_2', ..., Flat t_n t_n')
+            -> Flat (t_1, t_2, ..., t_n) (t_1', t_2', ..., t_n')
+\end{lstlisting}
+%
+The @Tuple@ constructor covers tuples of arrays, which are all vectorised independently. This is crucial as one component might be used in a regular context, while another in an irregular context; similarly one might use vectorisation avoidance, while the others don't, et cetera.
+
+Vectorisation avoidance is covered by the @Avoid@ alternative, where we keep the type the same. We don't even need to normalise as the @t@ in @Avoid :: Flat t t@ is always a scalar; otherwise, we wouldn't use vectorisation avoidance. To check whether all components of a compound type use vectorisation avoidance, we use the following helper function that produces a witness for the type equality of the original and transformed type term:
+%
+\begin{lstlisting}[style=ndp]
+isAvoid :: Flat t t' -> Maybe (t :~: t')
+isAvoid Avoid = Just Refl
+isAvoid (Tuple (r_1,r_2,...,r_n))
+  | Just Refl <- isAvoid r_1
+  , Just Refl <- isAvoid r_2
+  ...
+  , Just Refl <- isAvoid r_n
+  = Just Refl
+isAvoid _ = Nothing
+\end{lstlisting}
+
+\subsection{The lifting transformation}
+
+\begin{figure}
+\centering
+% \begin{lstlisting}[style=ndp]
+% e ::= v
+%     | c
+%     | (e_1,e_2,...,e_n)
+%     | e_i                    -- Tuple projection
+%     | p e
+%     | e_1 ! e_2              -- Array indexing
+%     | extent e
+%     | (\. e_1) e_2
+%     | generate e_1 (\. e_2)
+%
+% -- Variables (Debruijn indices)
+% v ::= v_0 | v_1 | ... | v_n
+%
+% -- Constants (either scalar values or non-nested arrays)
+% c ::= 0 | 1 | ... | n
+%     | {...}   % TLM: ???
+%
+% -- Uncurried primitive functions
+% p ::= + | - | * | ...
+%     | :. | indexHead | indexTail | indexInit | indexLast
+% \end{lstlisting}
+
+% \fbox{Language definition}
+\begin{minipage}[t]{0.4\textwidth}
+\begin{displaymath}
+\begin{array}{llcl}
+  $variables$   & v  & \bnfdef{} & v_0 \alt{} v_1 \alt{} \dots              \\
+  $literals$    & l  & \bnfdef{} & 0 \alt{} 1 \alt{} 2 \alt{} \dots         \\
+  $constants$   & c  & \bnfdef{} & l \alt{} \left[c,c,\dots\right]          \\
+  $shapes$      & sh & \bnfdef{} & $Z$ \alt{} sh\; :.\; e                   \\
+  $tuples$      & t  & \bnfdef{} & (e_0,\dots,e_n)                          \\
+  $primitive$   & p  & \bnfdef{} & (+) \alt{} (*) \alt (-)
+                                       \alt{} $indexInit$\,\,\dots
+\end{array}
+\end{displaymath}
+\end{minipage}
+\begin{minipage}[t]{0.5\textwidth}
+\begin{displaymath}
+\begin{array}{llcl}
+  $expressions$ & e  & \bnfdef{} & v
+                          \alt{}   c
+                          \alt{}   sh
+                          \alt{}   t
+                          \alt{}   e\; !\; sh
+                          \alt{}   p\; t                                    \\
+                &    &    \alt{} & (\uplambda v_0.\, e_1)\; e_2             \\
+                &    &    \alt{} & $prj$\; l\; e                            \\
+                &    &    \alt{} & $extent$\; e                             \\
+                &    &    \alt{} & $generate$\; sh\; (\uplambda v_0.\, e)   \\
+                &    &    \alt{} & $fold$\; (\uplambda v_1\, v_0.\, e_1)\; e_2\; e_3 \\
+                % &    &    \alt{} & $indexHead$\; sh \alt{} $indexTail$\; sh \\
+                % &    &    \alt{} & $indexLast$\; sh \alt{} $indexInit$\; sh \\
+\end{array}
+\end{displaymath}
+\end{minipage}
+\caption{The data parallel core language}
+\label{fig:language-def}
+\end{figure}
+%
+To formalise the lifting transformation, we use a core language with fewer parallel operations than Accelerate, but which is also more general in that it supports arbitrarily nested parallel arrays. The latter not only simplifies explanation but shows that this transformation truly is an extension of similar vectorisation approaches.
+
+The grammar of our language is listed in Figure~\ref{fig:language-def}. The primitive operations of the language are a selection of the usual arithmetic operations, operating on expressions, and @indexInit :: (sh:.Int) -> sh@, which strips the outermost nesting level from a shape descriptor. Expressions can be variables, constants, shape descriptors, tuples, array computations indexed with a shape descriptor, applications of primitives or lambda abstractions, and projections on tuples. The function @extent :: Array sh e -> sh@ returns the shape of an array. The function @generate@ creates an array of given shape, with all elements initialised by a function which maps a given array index to a value. More specialised functions, such as @map@, can be expressed in terms of @generate@. Finally, we have @fold@, which is parametrised by a scalar function and a scalar starting value.
+
+The lifting transform \lstinline[style=ndp]{Lift} takes a term in our language and yields a term in the same language of a \lstinline[style=ndp]{Flat}-related type that contains no nested parallelism nor nested arrays. Its complete type is:
+%
+\begin{lstlisting}[style=ndp]
+Lift[|.|] :: Expr Gamma t -> Env Gamma Gamma' -> (exists t'. (Flat t t', Expr Gamma' t'))
+\end{lstlisting}
+%
+Let's look at its components. The first argument of type \lstinline[style=ndp]{Expr Gamma  t} is the typed abstract syntax (AST) of the core language term that is to be vectorised, where \lstinline[style=ndp]{Gamma} is a type-level list of the free variables in the term and @t@ is the term's type.\footnote{Just like the full implementation in Accelerate, we use a typed representation of the core language to define a type-preserving transformation; see \citet{McDonell:2015:acc-llvm} for details on Accelerate's design in this respect.} The second argument of type \lstinline[style=ndp]{Env Gamma  Gamma'} is an environment providing a symbolic valuation for the free variables captured in \lstinline[style=ndp]{Gamma}. It also relates the types of the free variables \lstinline[style=ndp]{Gamma} to their vectorised form \lstinline[style=ndp]{Gamma'}. Finally, the result combines the witness for the vectorised result type @t'@ with the lifted term \lstinline[style=ndp]{Expr Gamma' t'}, whose type parameters have been vectorised to match, establishing type-preservation of the transformation.
+
+The structure of the environment \lstinline[style=ndp]{Env Gamma  Gamma'} is somewhat more involved than usual, due to special requirements during vectorisation. Recall the fully vectorised version of the function @average@ (Section~\ref{sec:flattening}), which we called @average@$^\uparrow$. It contains the subexpression @replicate (Z :. length xs) 2@ to produce a vector of the constant scalar @2@ whose length matches that of the argument vector @xs@, which constitutes the context for @2@'s vectorisation. We need to similarly replicate the value of any term that is constant within a vectorisation context (regardless of whether it is a scalar or an array), unless vectorisation avoidance indicates that this is not necessary. Hence, we use environments for the usual purpose of tracking the types of free variables. In addition, for each free variable we track both its original and its vectorised type (the @(:)@ alternative below). Moreover, we track both regular (the @(:@$_R$@)@ alternative) and irregular contexts (the @(:@$_Ir$@)@ alternative). The last two maintain the symbolic form of a term that represents the vectorisation context, which we can use for @replicate@.
+%
+\begin{lstlisting}[style=ndp]
+data Env Gamma Gamma' where
+  []    :: Env [] []
+  (:)   :: Flat t t'                      -- standard free variable
+        -> Env Gamma Gamma'
+        -> Env (t : Gamma) (t' : Gamma')
+  (:_R)  :: Shape sh                      -- regular vectorisation context
+        => Expr Gamma' sh
+        -> Env Gamma Gamma'
+        -> Env Gamma Gamma'
+  (:_Ir) :: Shape sh                      -- irregular vectorisation context
+        -> Expr Gamma' (Segments sh)
+        -> Env Gamma Gamma'
+        -> Env Gamma Gamma'
+\end{lstlisting}
+%
+The use of this environment structure can be seen in the definition of the auxiliary function @var@ defined in Figure~\ref{fig:lst-auxillary}, which looks up free variables in the given environment. In addition to that conventional purpose, it also replicates the variable according to each enclosing context; i.e., while traversing the environment to look up the variable, it inserts a \lstinline[style=ndp]{replicate_R} and \lstinline[style=ndp]{replicate_Ir} for every \lstinline[style=ndp]{(:_R)} and \lstinline[style=ndp]{(:_Ir)} that it comes across, respectively.
+%
+\begin{figure}
+\begin{lstlisting}[style=ndp]
+-- Replicate a regular variable
+var :: Env Gamma Gamma' -> Var Gamma t -> (exists t. (Flat t t', Expr Gamma' t))
+var (r : _)        v_0   = (r, v_0)
+var (_ : env)      v_n+1 | (r, e) <- var env v_n
+                        = (r, weaken e)
+var (sh :_R env  )  v    | (r, e) <- var env v        -- Gone past a level of regular nesting
+                        = (r, replicate_R r sh e)
+var (segs :_Ir env) v    | (r, e) <- var env v        -- Gone past a level of irregular nesting
+                        = (r, replicate_Ir r segs e)
+
+-- Add new fresh variable
+weaken :: Expr Gamma t -> Expr (a : Gamma) t
+
+-- If the expression is lifted, replicate each subarray by the size of the given shape
+replicate_R  :: Flat t t' -> Expr Gamma sh -> Expr Gamma t' -> Expr Gamma t'
+
+-- If the expression is lifted, replicate each subarray by the size of the corresponding segment
+replicate_Ir :: Flat t t' -> Expr Gamma sh -> Expr Gamma t' -> Expr Gamma t'
+
+-- Get the shapes from segment descriptors
+shapes :: Segments sh -> Vector sh
+
+($_R)   :: Expr Gamma (Vector a -> Array sh b)
+       -> Expr Gamma (Array (sh:.Int) a)
+       -> Expr Gamma (Array (sh:.Int) b)
+($_Ir)  :: Expr Gamma (Vector a -> (Segments sh, Vector b))
+       -> Expr Gamma (Segments (sh:.Int), Vector a)
+       -> Expr Gamma (Segments (sh:.Int), Vector b)
+
+enum_R  :: Expr Gamma sh -> Expr Gamma (Array (sh:.Int) sh)
+enum_Ir :: Expr Gamma (Segments sh) -> Expr Gamma (Segments sh, Vector sh)
+
+-- A generalised zip for lifted scalars
+zip_S   :: (IsScalar e_0,.., IsScalar e_n)
+       => (Flat e_0 a_1,...,Flat e_n a_n)
+       -> (e_0,..,e_n)
+       -> Vector (e_0,...,e_n)
+\end{lstlisting}
+\caption{Auxilary functions needed by the lifting transformation}
+\label{fig:lst-auxillary}
+\end{figure}
+%
+\begin{figure}
+\begin{lstlisting}[basicstyle=\footnotesize\ttfamily,multicols=2,style=ndp]
+Lift[|c|] _   = (Avoid, c)
+Lift[|v|] env = var env v
+Lift[|p t|]
+  | (Tuple ts, t') <- Lift[|t|] env
+  = (Regular Scalar, map (\v_0. p v_0) (zip_S ts e'))
+Lift[|extent e|]
+  | (Avoid, e') <- Lift[|e|] env
+  = (Avoid, extent e')
+  | (Regular _, e') <- Lift[|e|] env
+  = (Avoid, indexInit (extent e'))
+  | (Irregular r, e') <- Lift[|e|] env
+  = (Regular r, shapes (prj 0 e'))
+Lift[|e ! sh|]
+  | (Avoid, sh') <- Lift[|sh|] env
+  , (Avoid, e')  <- Lift[|e|] env
+  = (Avoid, e' ! sh')
+  | (Regular Scalar, sh') <- Lift_F[|sh|] env
+  , (Regular r, e')       <- Lift_F[|e|] env
+  = (Regular r, e' !_R sh')
+  | (Regular Scalar, sh') <- Lift_F[|sh|] env
+  , (Irregular r, e')     <- Lift_F[|e|] env
+  = (Irregular r, e' !_Ir sh')
+Lift[|(\ v_0. e_1) e_2|] env
+  | (r_1, e_2') <- Lift[|e_2|] env
+  , (r_2, e_1') <- Lift[|e_1|] (r_1 : env)
+  = (r_2, (\ v_0. e_1') e_2')
+Lift[|(e_0,...,e_n)|] env
+  | (r_0, e_0') <- Lift[|e_1|] env
+  ...
+  , (r_n, e_n') <- Lift[|e_n|] env
+  = (Tuple (r_1,...,r_n), (e_0',...,e_n'))
+Lift[|prj l e|] env
+  | (Tuple (..,r_l,..), e') <- Lift[|e|] env
+  = (r_l, prj l e')
+Lift[|generate sh (\ v_0. e)|] env
+  | (Avoid, sh') <- Lift[|sh|] env
+  , (r, e')      <- Lift[|e|] (Avoid : env)
+  , Just Refl    <- isAvoid r
+  = (r, generate sh' (\ v_0. e'))
+  | (Avoid, sh')    <- Lift[|sh|] env
+  , (Regular r, e') <- Lift[|e|] (Regular Scalar : sh' :_R env)
+  = (Regular (Nest r), (\ v_0. e') $_R enum_R sh')
+  | (Regular Scalar, sh') <- Lift[|sh|] env
+  , (Irregular r, e')     <-
+      Lift_F[|e|] (Regular Scalar : makeSegments sh' :_Ir env)
+  = (Irregular (Nest r), (\ v_0. e') $_Ir enum_Ir sh')
+Lift[|fold (\ v_1 v_0. e_1) e_2 e_3|] env
+  | (Avoid, e_2') <- Lift[|e_2|] env
+  , (Avoid, e_1') <- Lift[|e_1|] (Avoid : env)
+  , (Avoid, e_3') <- Lift[|e_3|] env
+  = (Avoid, fold (\ v_1 v_0. e_1') e_2' e_3')
+  | (Avoid, e_2')              <- Lift[|e_2|] env
+  , (Avoid, e_1')              <- Lift[|e_1|] (Avoid : env)
+  , (Regular (Higher r), e_3') <- Lift[|e_3|] env
+  = (Regular r, fold (\ v_1 v_0. e_1') e_2' e_3')
+  | (Avoid, e_2')                <- Lift[|e_2|] env
+  , (Avoid, e_1')                <- Lift[|e_1|] (Avoid : env)
+  , (Irregular (Higher r), e_3') <- Lift[|e_3|] env
+  = (Irregular r, fold_seg (\ v_1 v_0. e_1') e_2' e_3')
+%\,%
+%\,%
+\end{lstlisting}
+\caption{The lifting transformation}
+\label{fig:lifting-transform}
+\end{figure}
+
+The main rules of the vectorisation transformation are given in Figure~\ref{fig:lifting-transform}. When it encounters a constant value, vectorisation returns it as it is, paired with the @Avoid@ constructor to signal that it has not been vectorised yet. When vectorising a variable, the transformation refers to the auxiliary function @var@ discussed previously. The application rule defines how the context of a variable is determined by the argument it is bound to: the transformation first vectorises the argument, inserting the resulting \lstinline[style=ndp]{Flat}-term in the environment of the variable.
+
+The rules for @extent@ just return the original expression, if vectorisation of its argument expression can be avoided. If the argument expression vectorises in a regular context, @extend@  gets vectorised to the shape of the vectorised argument, stripped of the outermost dimension. If instead the context is irregular, the application of @extend@ is vectorised to be the vector of shapes stored in the segment descriptor of the vectorised argument.
+
+The rules for indexing @(!)@ are defined in terms of \lstinline[style=ndp]{Lift_F}, which enforces vectorisation by ignoring @Avoid@ in the vectorisation of the term $e$ that constitutes the first argument of the indexing operation. The exact definition is the following:
+%
+\begin{lstlisting}[style=ndp]
+Lift_F [|e|] env
+  | (Avoid, e') <- Lift[|e|] env = (Regular, replicate envSize e')
+  | (r, e')                  = (r, e')
+
+envSize :: Env Gamma Gamma' -> Expr Gamma' Int
+envSize (sh :_R  _)   = indexLast sh
+envSize (segs :_Ir _) = length segs
+envSize (_ : env)    = envSize env
+\end{lstlisting}
+
+The @generate@ rule is one of the more interesting ones. When the body-expression of the argument function is lifted, the transformation essentially implements a backtrack search. First, it checks if it can avoid vectorisation of that expression, which would be the cheapest solution. If that is not possible, it checks if it can be lifted to a regular computation, and if that is also not the case, it lifts it to an irregular computation. The backtracking could, in theory, lead to exponential work complexity. In practice, this is not a problem, as there is no deep nesting of @generate@-expressions. \citet{Keller:avoidance}, who have to distinguish between only two cases, circumvent backtracking by splitting the transformation into an analysis phase which first labels the expression, followed by a separate lifting phase; we could follow a similar approach. With respect to the definition of \lstinline[style=ndp]{Env Gamma  Gamma'}, it is worth noting how the recursive use of lifting in the @generate@ case extends the environment with regular and irregular vectorisation contexts, which subsequently lead to the generation of the appropriate uses of \lstinline[style=ndp]{replicate_R} and \lstinline[style=ndp]{replicate_Ir} by @var@ (as discussed above).
+
+For @fold@, the type system ensures that the function it is applied to is a sequential computation over scalars, and the initial value is a scalar as well, so the transform can rely on the fact that vectorising these two arguments is not necessary, and only has to check whether the vectorised third argument is @Avoid@, @Regular@, or @Irregular@. As we have seen in the @sum@ example, in the first two cases the vectorised @fold@ is just a plain @fold@, while in the irregular case, however, it is transformed into the segmented version @fold@$_\texttt{seg}$.
+
+% In order to transform a term with respect to its context, we must capture the nature of the context in @Env@. If we treat our environment as simply a list of types then could we not just say @Env@ is the \lstinline[style=ndp]{Flat} relation over lists? No. We in fact need more information during the lifting transform as to where the free variables were bound, specifically, how many levels of nesting are we below where it was bound and to what size it occurs. \rob{Reword?}
+% \tlm{yes}
+
+%
+% \rob{Reformat this as inference rules?}
+% \begin{align*}
+% &\flattened{()}{()} \\
+% &\flattened{()}{Int} \\
+% &c \text{ is scalar}
+%   &&\Rightarrow \flattened{c}{c} \\
+% &c \text{ is scalar}
+%   &&\Rightarrow \flattened{c}{Vector\ c} \\
+% &\flattened{Array\ sh\ e}{Array\ sh\ e} \\
+% &\flattened{Array\ sh\ e}{Array\ (sh:.Int)\ e} \\
+% &\flattened{Array\ sh\ e}{(Segments\ sh,\ Vector\ e)} \\
+% &\flattened{a}{a'} \wedge \flattened{b}{b'}
+%   &&\Rightarrow \flattened{a\ \rightarrow\ b}{a'\ \rightarrow\ b'} \\
+% &\flattened{a_1}{a_1'} \wedge \flattened{a_2}{a_2'} \wedge \dots \wedge \flattened{a_n}{a_n'}
+%   &&\Rightarrow \flattened{(a_1,a_2,\dots,a_n)}{(a_1',a_2',\dots,a_n')} \\
+% \end{align*}
+
+% There are a few important properties of this relation. Firstly, it is reflexive. This is evident from the @Avoid@ constructor. However, due to the @Tuple@ constructor, there are multiple ways for an identity relationship to be derived. For this reason we need the helper method @isAvoid@ so we can always identify identity.
+
+% \tlm{RCE: D.A.A.Trafo.Vectorise.isIso?}
+% \rob{TLM: In essence yes. The only difference is isIso has to deal with representation types. Two types may have the same representation but different surface types and that can complicate things a bit. That whole side of things we're going to leave out of the paper I think. It's not necessary for understanding the core idea and it would just get confusing.}
+% \begin{lstlisting}[style=ndp]
+% isAvoid :: Flat t t' -> Maybe (t :~: t')
+% isAvoid Avoid = Just Refl
+% isAvoid (Tuple (r_1,r_2,...,r_n))
+%   | Just Refl <- isAvoid r_1
+%   , Just Refl <- isAvoid r_2
+%   ...
+%   , Just Refl <- isAvoid r_n
+%   = Just Refl
+% isAvoid _ = Nothing
+% \end{lstlisting}
+
+
+
+\subsection {Vectorising data transfer}
+
+An important consideration for vectorisation is how to vectorise @subarrays@. With subarrays, we want to create a sequence by splitting an array up into subarrays. In the case of 1D arrays (vectors) this is trivial. To take continuous subvectors from a vector we can just take a single larger subvector. For 2D arrays (matrices) this is harder. Supposing we were using a chunk size of 3 and wanted to split up the followng array, the first chunk could be copied with one call to the @memcpy2D@ method CUDA provides.
+
+\TODO{Include diagram of a matrix with 5x5 submatrices.}
+
+While this chunk that has been extracted has its subarrays concatenated on the inner dimension, that can be simply fixed by a backwards permutation once it has been transferred. Thanks to Accelerate's \emph{fusion} system, this permutation will fuse into the computation consuming the chunk and thus not create an intermediate array.
+
+The 2nd chunk, however, goes over 2 columns. The only way to resolve this is to do 2 memcpys like so:
+
+\TODO{Include diagram for 2nd chunk}
+
+Provided the chunk size is less than the height of the array, we can always copy a chunk with no more than 2 memcpys. If the chunk size is more than the height of the array, we have to perform an additional transfer.
+
+Take this different example. Supposing a chunk size of 7, we would need to transfer the first and second chunks as shown in these diagrams.
+
+\TODO{Include diagrams for the 1st and 2nd chunk of a matrix with 3x7 submatrices}
+
+In general, our chunks will always contain three components, which we'll call the head, body, and tail, each of which gets transferred with one @memcpy2d@ and permuted afterward.
+
+
+\section{Scheduling sequences}
+\label{sec:scheduling}
+
+We are still left with the problem of deciding how many elements of a sequence we should compute at any one time. \citet{Madsen:2015} analyse whole sequence computations and chose a static number based on an analysis of their parallel degree. While this works well in the regular case, in the presence of irregularity, however, the sizes of the individual elements may vary greatly, so there is, in general, no good fixed static chunk size. Hence, we use a dynamic scheduling approach, constantly adjusting the size of chunks as we execute the sequence computation. This adjustment happens at each step of the whole sequence computation, not between individual transducers. For example, suppose we have the following sequence computation.
+%
+\begin{lstlisting}
+consume . elements . mapSeq f . mapSeq g $ xs
+\end{lstlisting}
+%
+% \begin{lstlisting}
+% consume . elements $ zipWithSeq f (mapSeq g xs) ys
+% \end{lstlisting}
+% \gck{I don't understand which changing the sequence size here wold be a problem - if there was a zipWith, but why with a map?}
+% \rob{You're right. This example can be scheduled in that way. Maybe something like what's above now?}
+% \gck{Yes, I guess. Rob - can you fix the description? I'm not quite sure how it works with the chunking if two sequences are involved, and exactly where it would clash}
+% \gck{Much better }
+% \rob{I've actually gone back to the old example and changed the point we were trying to make slightly. I was really trying to get at why multi-rate scheduling doesn't work for sequences with content of unknown size. Does this make sense?}
+Here, @consume :: Seq arr -> Acc arr @ marks the boundary of the sequence computation with the @Acc@ computation it is embedded in. To perform one step of this computation would be to (1) compute a chunk of @xs@; (2) apply the lifted version of @g@ over the chunk; (3) apply the lifted version of @f@ to that result; and finally (4) store the result. Now suppose that we achieve maximum parallelism of @f@ with a chunk size of $N$, but @g@ gets its best performance at a size of $2N$. We could conceivably compute an $N$-sized chunk with @f@, compute a second $N$-sized chunk with @f@, then combine these two pieces into $2N$-sized chunk for @g@. Combining the chunks, however, requires copying into a new buffer. Furthermore, even though the size of the chunks may be known, the size of the data in each chunk is not. For this reason, any sort of multi-rate scheduling requires either considerable copying of intermediates or unbounded buffers. Thus, we chose not to implement such such approaches due to the large amount of memory traffic they require.
+
+Therefore, we only adjust the chunk size after a complete step of the sequence computation has been performed. We use a simple strategy: first, we execute a step of the computation with a chunk size of one and time it; then a step with a chunk size of two and time that as well. We then compare the two times to check whether there was a speed up relative to the chunk size change. If so, we double the size again. We repeat this process until there is no further improvement. Similarly, if there is a significant slow down, we halve the chunk size.
+
+
+%This simple form of dynamic scheduling ensures that we maximise parallel execution potential, without using more space than is necessary. \TODO{reword}
+
+%There are of course cases where this form of scheduling is in fact the worse case. For example
+While this strategy works well in general, certain pathological cases exist. For example, consider the following sequence computation, which computes the sum of the elements of each vector in the stream:
+%
+\begin{lstlisting}
+consume ( mapSeq ( foldl (+) 0 ) xs )
+\end{lstlisting}
+%
+% \gck{since the flattened size of the data streamed in is easy to keep track off, why not use that as an additional measure?}
+% \rob{In the case of produce, we can't really keep track of how much data it yields without forcing that data to be manifest. If we want to fuse the produce into the rest of the computation, we can't do that. Also, the flattened size of the data input is not always an indicator of the amount of work that will be done.}
+%
+and where the input stream @xs@ contains vectors of alternating and wildly
+different sizes:
+%
+\begin{lstlisting}
+[ 1, 10%$^{10}$%, 1, 1, 10%$^{10}$%, 1, 1, 10%$^{10}$% %$\ldots$% ]
+\end{lstlisting}
+%
+The scheduler starts with a chunk size of one. Since the first element of the
+stream contains only a single element, and thus no parallelism is available, in
+the second iteration it increases the chunk size to instead process two elements
+from the stream at once. However, since the next step must then process several
+orders of magnitude more elements, the time per chunk has increased
+dramatically, so the scheduler will decide in the third step to again process
+only a single element from the stream, and so on.
+% Thus, in this case the scheduler is unable to find a good chunk size for this input.
+
+% which is obviously too small as the vector contains only a hundred elements. When it increases the chunk size to 2, however, it will observe a clear slowdown per vector, as it had to process several orders of magnitude more elements. So, even though the processing time per vector element will be much less, it will stick to chunk size 1.
+
+More complicated scheduling strategies, which take into account the size of the
+flattened data, could detect the case above and handle it in a better way.
+However, the size of the flattened data is also not a reliable predictor of
+processing time, since the processing time can depend on the \emph{values} of
+the input data as well. Thus, it is always possible to construct some strategy
+to trick a scheduler. In practice, we found that the straightforward scheduling
+strategy described above works reliably in practice.
+
+\section{Fusion optimisations}
+\label{sec:Optimisation}
+
+\subsection{Sequence fusion}
+% \TODO{Sequence fusion is fairly simple. Description doesn't need to be long.}
+
+Composing functions to build programs has advantages for clarity and modularity.
+However, the na\"ive compilation of such programs quickly leads to both code
+explosion and use of intermediate data structures, hurting performance. Fusion
+(or deforestation) attempts to remove the overhead of programming in this style
+by combining adjacent transformations on data structures in order to remove
+intermediate results, and has been studied
+extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:acc-optim}.
+
+Similarly, it is important that we remove intermediate structures from a sequence
+computation. Recall that a sequence computation of type @Seq [Array sh e]@
+consists of many stream parallel array computations of type @Acc (Array sh e)@.
+In the same way, sequence fusion consists of two components.
+First, we use a variant of stream fusion~\cite{Coutts:stream-fusion}%
+\footnote{One of the complexities of general fusion transformations, including
+stream fusion, is needing handle filtering operations, where the size of the
+result structure depends on the \emph{values} of the input structure, as well as
+its size. Our sequences do not support dropping (or skipping) elements of the
+stream, so we do not need to consider it here.}
+in order to combine the sequence computations. This exposes the array
+computations of the sequences to each other, allowing us to then apply an
+improved version of the Accelerate array fusion system~\cite{McDonell:acc-optim}
+to further combine the operations, which we describe next.
+
+% We represent sequences internally as a simplified form of the concept of stream
+% a from the popular fusion approach of \citet{Coutts:stream-fusion}. The key
+% difference is that our sequences do not support skipping over elements. While it
+% would be useful to say, perform a filter over a sequence, our system does not
+% allow it due the buffering it would require. We refer you to the work on stream
+% fusion for more information on how streams can be fused.
+
+
+\subsection{Improved array fusion}
+
+The core idea underlying the existing Accelerate array fusion
+system~\cite{McDonell:acc-optim} is well known: simply represent an array by its
+size and a function mapping array indices to their corresponding values. Fusion
+then becomes an automatic property of the data representation. This method has
+been used successfully to optimise purely functional array programs in
+Repa~\cite{Keller:Repa,Lippmeier:Guiding}, although the idea of representing
+arrays as functions is well
+known~\cite{Claessen:obsidian-expressive,Guibas:1978jh,Elliott:2003ug}.
+
+% The
+% process of array fusion then becomes one of composing these representation
+% functions.
+
+% However, the straightforward implementation of this approach requires that terms
+% undergoing fusion be syntactically adjacent in the program. For example, in
+% order to fuse the following program we must be able to float the definition of
+% @xs@ above the outer @map@: %, otherwise the two terms will not be fused:
+% %
+% \begin{lstlisting}
+%   map f $ let xs = use (Array ...)
+%           in  map g xs
+% \end{lstlisting}
+
+However, a straightforward implementation of this approach results in a loss of
+\emph{sharing}, which was a problem in early versions of
+Repa~\cite{Lippmeier:Guiding}. For example, consider the following program:
+%
+\begin{lstlisting}
+let xs = use (Array ...)
+    ys = map f xs
+in
+zipWith g ys ys
+\end{lstlisting}
+%
+Every access to an element @ys@ will apply the (arbitrarily expensive) function @f@
+to the corresponding element in @xs@. It follows that these computations will be
+done \emph{at least} twice, once for each argument in @g@, quite contrary to the
+programmer's intent. In the standard Accelerate fusion system, their solution to
+this problem is to not fuse terms, such as @ys@, whose results are used more than
+once.
+
+% The existing Accelerate fusion system is able to deal with such problems, where
+% let bindings would otherwise inhibit fusion. However, the system does not take
+% into account \emph{tuples} of arrays. This is problematic for us, since
+
+However, this approach does not take into account what the term @ys@ actually
+\emph{is}; it simply sees that @ys@ occurs twice in @zipWith@ and so refuses to
+fuse it further. Consider the following example:
+%
+\begin{lstlisting}
+let xs = use (Array ...)
+    ys = (map f%$_1$% xs, map f%$_2$% xs)
+in
+zipWith g (fst ys) (snd ys)
+\end{lstlisting}
+%
+Although the term @ys@ still occurs twice in the @zipWith@, we can see that the
+individual components of the tuple each occur only once, and thus should still
+be subject to fusion.
+
+This lack of fusion in the regular Accelerate optimisation system is
+particularly problematic for us, since we represent irregular sequences as a
+pair consisting of the segment descriptor together with a vector of the array
+values. Thus, in the standard Accelerate system, irregular sequences would never
+fuse, severely impacting performance. We extend the Accelerate fusion system in
+order to fuse the individual components of a tuple independently, which improves
+the performance of both our sequence computations as well as regular Accelerate
+programs.
+
+
+\endinput
+
+
+% Following vectorisation, we represent a sequence computation as series of producers followed by consumers. Each producer consists of a limit, how many elements in total it will produce (Nothing if it is infinite); a state transformation function, a function that will take the starting index of the current sequence chunk as well as its size and the previous state and produce a new state and a new element of the sequence; and an initial state.
+
+% \begin{lstlisting}
+% data Seq env a where
+%   Producer :: Producer b
+%            -> Seq (env,b) a
+%            -> Seq env a
+%   Consumer :: Consumer env a
+%            -> Seq env a
+
+% data Producer env a where
+%   ProduceAccum :: Maybe Int                           -- The limit
+%                -> Afun env ((Int,Int) -> s -> (s, a)) -- State function
+%                -> Ref s                               -- Previous state
+%                -> Producer env a
+
+% data Consumer env a where
+%   Last :: Var env a
+%        -> Consumer env a
+
+%   Tuple :: (Seq env a_0, ..., Seq env a_n)
+%         -> Consumer env (a_0,...,a_n)
+% \end{lstlisting}
+
+% It is then possible to execute a single step of a sequence computation with @stepSeq@.
+
+% \begin{lstlisting}
+% stepSeq :: Int -> Int -> env -> a -> Seq a -> IO (Maybe a)
+% stepSeq index size env prev (Producer (ProduceAccum limit f stateRef) seq) =
+%   if fromMaybe True ((index <) <$> limit) then do
+%     let size' = min size (limit - index)
+%     state <- read stateRef
+%     (state', result) <- execAfun f (index, size') state
+%     write stateRef state'
+%     stepSeq index size' (env,result) prev seq
+%   else return Nothing -- Sequence is done. Whatever value was returned from the last step is the result.
+% stepSeq _ _ env _ (Consumer (Last v))
+%   = return (Just (prj v env)) -- The sequence computation has yielded a value.
+% stepSeq index size env prev (Consumer (Tuple (a_0, ..., a_n))) = do
+%   a_0' <- stepSeq index size env (prj 0 a) a_0
+%   ...
+%   a_n' <- stepSeq index size env (prj n a) a_n
+%   -- If all a's are Nothing then return Nothing. Otherwise, replace all Nothings with the previous values and return the new tuple.
+% \end{lstlisting}
+
+% It is important to note that by stepping the sequence in this way we can support sequences of different lengths. In the case of tuples, if we stopped computing a tuple whenever one of its components could not be stepped then we would be unable to support sequence computations like,
+
+% \begin{lstlisting}
+% lift (sumSeq xs, sumSeq ys) :: Seq (Scalar Int, Scalar Int)
+% \end{lstlisting}
+
+% if xs and ys were different lengths.
+
+% % \TODO{Explain how these sequence computations can be fused down to one ProduceAccum}
+
+% While this lets us execute sequence computations, it does not take into account \emph{fusion}. For example this sequence, where we assume xs is a regular sequence,
+
+% \begin{lstlisting}
+% sumSeq $ mapSeq (map (+1)) xs
+% \end{lstlisting}
+
+% would, after vectorisation, be converted to
+
+% \begin{lstlisting}
+% ProduceAccum ... -- However xs is computed
+% `Producer`
+% ProduceAccum Nothing (\_ () -> ((),map (+1) v%$_0$%)) -- v%$_0$% is the producer bound above
+% `Producer`
+% ProduceAccum Nothing (\_ s -> let s' = s + sum v%$_0$% in (s',s'))
+% `Producer`
+% Consumer (Last v%$_0$%)
+% \end{lstlisting}
+
+% Here we see an obvious problem. We're creating a whole new sequence chunk just to perform the @map (+1)@. We want this to be fused, and fortunately accelerate already supports array fusion. So supporting sequence fusion is just a matter of combining producers such that array fusion can happen.
+
+% For this example we merge the two producers into one like so
+
+% \begin{lstlisting}
+% ProduceAccum ... -- However xs is computed
+% `Producer`
+% ProduceAccum Nothing (\_ ((),s) -> let sa = ((),map (+1) v_0)
+%                                        s' = (s + sum (snd sa))
+%                                    in (s',s')
+% `Producer`
+% Consumer (Last v_0)
+% \end{lstlisting}
+
+% This new producer now contains an array function that can be fused by accelerate's array fusion.
+
+\subsection{Array fusion}
+% \TODO{Reference previous paper and talk about simple extension to support tuples of producers.}
+
+Accelerate's existing array fusion optimisation is described in~\cite{McDonell:acc-optim}. We will first give a brief overview of a simplified version of the optimisation. For a more detailed description, we refer to the paper.
+
+Accelerate fuses arrays be representing them in a delayed form, consisting of the shape of an array and a function that for every index produces an element.
+%
+\begin{lstlisting}
+Array sh e ~> (sh, (sh -> a))
+\end{lstlisting}
+
+For example, this function here
+%
+\begin{lstlisting}
+\xs -> map (+1) (map (*2) xs)
+\end{lstlisting}
+%
+is fused by a bottom up traversal. We first delay @xs@ into
+%
+\begin{lstlisting}
+(shape xs, (xs !))
+\end{lstlisting}
+%
+The @map (*2)@ can now be delayed by taking the delayed form of @xs@ and composing it with @*2@.
+%
+\begin{lstlisting}
+(shape xs, (\ix -> (xs ! ix)*2))
+\end{lstlisting}
+%
+In general,
+%
+\begin{lstlisting}
+map f (sh, g) = (sh, f . g)
+\end{lstlisting}
+%
+We can then do the same with the @map (+1)@, giving us a final form of
+%
+\begin{lstlisting}
+\xs -> (shape xs, (\ix -> (xs ! ix)*2))
+\end{lstlisting}
+
+This can be brought back into array form by turning the delayed array into a generate.
+%
+\begin{lstlisting}
+\xs -> generate (shape xs) (\ix -> (xs ! ix)*2)
+\end{lstlisting}
+%
+Of course, this presents problems when it comes to let bindings. Firstly, if we have a term of the form
+%
+\begin{lstlisting}
+let a = generate sh f
+in map g a
+\end{lstlisting}
+%
+there is an obvious advantage to inlining @a@ and fusing it into the @map@. In general however, it's not a good idea to inline all delayable let bindings as it can recomputation. So, when should we inline? There are many possible measures that could be used, but we opt for a simple one. Accelerate inlines whenever a variable is only ``used" once. By ``used" here, we mean how often the variable occurs in the body of the let binding. We will extend this definition in the next section.
+
+So the above example will fuse, but this one
+%
+\begin{lstlisting}
+let a = generate sh f
+in (map g a, map h a)
+\end{lstlisting}
+%
+will not.
+
+With let bindings there is an additional problem. Consider this term.
+%
+\begin{lstlisting}
+let a = let b = scanl f z
+        in map g b
+in map h a
+\end{lstlisting}
+%
+In this case, it is possible to fuse the term into
+%
+\begin{lstlisting}
+let b = scanl f z
+in map (h . g) b
+\end{lstlisting}
+%
+However, by doing this, we've had to float the binding for @b@ outside of its previous scope. This extends the lifetime of @b@ potentially affecting the programs memory usage. In general, Accelerate will perform this let floating, but only provided it allows for a term to be inlined and fused.
+
+\subsection{Array tuple fusion}
+
+The fusion system we've described so far doesn't take into account tuples. This is problematic when it comes to sequences as we represent irregular sequence chunks as a pair of segment descriptors and a values vector, but also because of the structure of @Producer@s described above, where we tuple the result of a sequence computation with its state.
+
+As an example, suppose we have this term
+
+\begin{lstlisting}
+let t = (generate sh f, generate sh' g)
+in zipWith h (fst t) (snd t)
+\end{lstlisting}
+%
+Under the previous system, this wouldn't fuse, despite the fact that even though the tuple was ``used" twice each component of the tuple is only accessed once.
+
+By extending the concept of what it means for a binding to be used, we can enable terms like this to be fused. We simply need to keep a separate occurence count for each component of a tuple.
+
+In the above example, that would let us see that even though @t@ occurs twice in the body, each component of @t@ is only ``used" once. Hence the binding can be inlined using a specialised form of inlining that immediately simplifies when it encounters tuple projection. This results in
+%
+\begin{lstlisting}
+zipWith h (generate sh f) (generate sh' g)
+\end{lstlisting}
+%
+which can be fused using the rules described above. If we were to use conventional inlining we would end up with
+%
+\begin{lstlisting}
+zipWith h (fst (generate sh f, generate sh' g)) (snd (generate sh f, generate sh' g))
+\end{lstlisting}
+%
+which, while still fusing after further simplification, is much larger than the original term. In general, simple inlining can cause an explosion in the size of the term, slowing down subsequent optimisation.
+
+Let us now look at a more complicated example:
+%
+\begin{lstlisting}
+let t = (generate sh f, scanl g z arr, map h arr)
+in ( zipWith h (prj 0 t) (prj 2 t)
+   , zipWith k (prj 2 t) (prj 1 t) )
+\end{lstlisting}
+%
+This brings up the question of what we should do when some components of a tuple are delayable and are only used once, but others are either not delayable (scans can't be represented with delayed arrays) or occur multiple times? In this case we inline the first component of @t@ but leave the second and 3rd components bound.
+%
+\begin{lstlisting}
+let t' = (scanl g 0 arr, map h arr)
+in ( zipWith h (generate sh f) (prj 1 t')
+   , zipWith k (prj 1 t') (prj 0 t) )
+\end{lstlisting}
+%
+In general, when we encounter a let binding of a tuple like this, we split the tuple into two tuples, one containing all the components that are delayable and only occur once, the other containing all the components that should remain let-bound. The delayable tuple gets inlined using the specialised inline, the bound one remains let-bound.
+
+Of course, like above, we also have to consider nested bindings:
+%
+\begin{lstlisting}
+let a = let b = scanr j 1 arr
+        in (map f b, scanl g 0 b)
+in zipWith h (fst a) (snd a)
+\end{lstlisting}
+%
+This gets transformed into
+%
+\begin{lstlisting}
+let b = scanr j 1 arr in
+let a = scanl g 0 b
+in zipWith h (map f b) a
+\end{lstlisting}
+%
+Here we are floating @b@ out, possibly extending its lifetime. However, by doing this, we are able to fuse the first component of @a@. As above, we consider that the benefit of fusion outweighs the cost of let floating.
+
+% \rob{Maybe I should mention the properties of the accelerate language that make this optimisation useful? i.e. tuple constructors can only occur in a handful of places. Also, it may not be obvious from what I've described here that this also works for nested tuples}
+
+While initially these fusion rules relating to tuples may seem to only work in specific situations, it is worth noting that they in fact stop tuples being a barrier to fusion in all cases: simply due to the restricted nature of the Accelerate language. The two key properties that make this happen are that:
+  (1) Tuple constructors can only occur in a few places. In the argument to tuple projections, in let bindings and in other tuple constructors. None of the combinators take tuples as arguments.
+  (2) Unnecessary indirection of the form @let v_0 = v_1 in c[v_0]@ is eliminated during fusion as well.
+
+We've already shown how tuple constructors in let bindings can be fused. The case where a tuple constructor is passed to tuple projection is trivial. The only remaining case is tuple constructors in other tuple constructors. For example,
+%
+\begin{lstlisting}
+let x = (a, (b, c, d))
+in ...
+\end{lstlisting}
+%
+Supposing that @b@ is delayable and is only ``used" once by the body, but that a, c and d need to remain bound, we have to be careful. We capture the exact usage pattern of such tuples by maintaining usage information in the following representation:
+%
+\begin{lstlisting}
+data Uses a where
+  UsesArray :: Int -- How many times the contents of the array is accessed
+            -> Int -- How many times the shape of the array is used
+            -> Uses (Array sh e)
+  UsesTuple :: (Uses t_0, ..., Uses t_n)
+            -> Uses (t_0,..,t_n)
+\end{lstlisting}
+%
+As a result, we capture how every component or sub-component of a tuple is accessed by the body of the binding.
+
+When we inline with nested tuples, we similarly split each tuple into two smaller tuples. In the above example, we get
+%
+\begin{lstlisting}
+let x = (a, (c, d))
+in ...
+\end{lstlisting}
+%
+with @b@ now fused into the body.

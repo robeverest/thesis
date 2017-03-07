@@ -1,0 +1,76 @@
+# For more information, see: https://github.com/commercialhaskell/stack/blob/release/doc/yaml_configuration.md
+# vim: nospell
+
+resolver: lts-8.0
+allow-newer: true
+
+packages:
+- '.'
+
+- location:
+    git:    https://github.com/AccelerateHS/accelerate.git
+    commit: df6646a2e0f596dd5b98b0bff20fc0a7deb869be
+  extra-dep: true
+
+- location:
+    git:    https://github.com/AccelerateHS/accelerate-llvm.git
+    commit: 0206c89ac5a065e58d4f1250d1760a72f8c61a19
+  extra-dep: true
+  subdirs:
+    - 'accelerate-llvm'
+    - 'accelerate-llvm-native'
+    - 'accelerate-llvm-ptx'
+
+- location:
+    git:    https://github.com/AccelerateHS/accelerate-io.git
+    commit: c8a618b563853b08f3501979e05e51d1303d7fa4
+  extra-dep: true
+
+- location:
+    git:    https://github.com/tmcdonell/llvm-general.git
+    # commit: 8971e275fe56dfd0090ac777e38e6dd641a0306a # 3.5
+    # commit: f80beba704a6b168326d442197b43e71a1ab730d # 3.8
+    commit: 69863022efd2691e8198da0c24b7e49b8d5ebd4c # 3.9
+  extra-dep: true
+  subdirs:
+    - 'llvm-general'
+    - 'llvm-general-pure'
+
+extra-deps:
+- 'chaselev-deque-0.5.0.5'
+- 'cuda-0.7.5.2'
+- 'libffi-0.1'
+- 'nvvm-0.7.5.1'
+- 'unique-0'
+
+# Override default flag values for local packages and extra-deps
+flags:
+  # llvm-general:
+  #   shared-llvm: true
+  accelerate:
+    debug: false
+    ekg:   false
+  accelerate-llvm-native:
+    debug: false
+  accelerate-llvm-ptx:
+    debug: false
+    nvvm:  false
+
+# Extra package databases containing global packages
+extra-package-dbs: []
+
+# Control whether we use the GHC we find on the path
+# system-ghc: true
+
+# Require a specific version of stack, using version ranges
+# require-stack-version: -any # Default
+# require-stack-version: >= 0.1.4.0
+
+# Override the architecture used by stack, especially useful on Windows
+# arch: i386
+# arch: x86_64
+
+# Extra directories used by stack for building
+# extra-include-dirs: [/path/to/dir]
+# extra-lib-dirs: [/path/to/dir]
+

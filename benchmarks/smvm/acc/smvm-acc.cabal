@@ -1,0 +1,41 @@
+name:                 smvm-acc
+version:              0.1.0.0
+-- synopsis:
+-- description:
+-- homepage:
+license:              BSD3
+-- license-file:         LICENSE
+author:               Trevor L. McDonell
+maintainer:           Trevor L. McDonell <tmcdonell@cse.unsw.edu.au>
+copyright:            BSD3
+build-type:           Simple
+-- extra-source-files:   README.md
+cabal-version:        >=1.10
+
+executable smvm-acc
+  main-is:            Main.hs
+  other-modules:      Matrix SMVM
+  ghc-options:        -Wall -O2 -threaded -rtsopts -with-rtsopts=-n4M -with-rtsopts=-A128M -with-rtsopts=-qa
+  cc-options:         -Wall -O3
+
+  build-depends:
+        base
+      , accelerate
+      , accelerate-io
+      , accelerate-llvm-native
+      , accelerate-llvm-ptx
+      , criterion
+      , cuda
+      , deepseq
+      , directory
+      , mwc-random
+      , vector
+      , vector-algorithms
+
+  include-dirs:       cbits
+  c-sources:          cbits/mmio.c cbits/matrix_market.c
+
+  default-language:   Haskell2010
+
+-- vim: nospell
+

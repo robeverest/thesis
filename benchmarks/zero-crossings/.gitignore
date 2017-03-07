@@ -1,0 +1,13 @@
+*~
+output/*
+
+zero_crossings/DATA/.#T_255_0
+
+zero_crossings/output/.#rr.txt
+
+zero_crossings/output/reconns.txt
+
+zero_crossings/output/reconns.txt
+
+zero_crossings/output_sound/reconstructed_sound.wav
+/zero_crossings_haskell.hsproj/.stack-work

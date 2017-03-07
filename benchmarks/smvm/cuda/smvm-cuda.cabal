@@ -1,0 +1,43 @@
+name:                 smvm-cuda
+version:              0.1.0.0
+-- synopsis:
+-- description:
+-- homepage:
+license:              BSD3
+-- license-file:         LICENSE
+author:               Trevor L. McDonell
+maintainer:           Trevor L. McDonell <tmcdonell@cse.unsw.edu.au>
+copyright:            BSD3
+build-type:           Simple
+-- extra-source-files:   README.md
+cabal-version:        >=1.10
+
+executable smvm-cuda
+  main-is:            Main.hs
+  other-modules:      Matrix
+  ghc-options:        -Wall -O2 -rtsopts -threaded
+  cc-options:         -Wall -O3
+  build-depends:
+        base
+      , criterion
+      , cuda
+      , deepseq
+      , directory
+      , mwc-random
+      , vector
+      , vector-algorithms
+
+  include-dirs:       cbits
+  c-sources:          cbits/mmio.c cbits/matrix_market.c
+
+  include-dirs:       /usr/local/cuda/include
+  extra-lib-dirs:     /usr/local/cuda/lib
+
+  extra-libraries:    cusparse
+
+  default-language:   Haskell2010
+
+  build-tools:        c2hs
+
+-- vim: nospell
+

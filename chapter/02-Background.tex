@@ -1,0 +1,163 @@
+\chapter{Background}
+
+\section{CUDA}
+
+\section{Nested Data Parallelism (NDP)}
+
+\section{Accelerate}
+\label{sec:background-accelerate}
+\TODO{Revise for flow with other sections}
+
+\emph{Accelerate} is a parallel array language consisting of a carefully
+selected set of operations on multidimensional arrays, which can be compiled
+efficiently to bulk-parallel SIMD hardware. Accelerate is \emph{deeply embedded}
+in Haskell, meaning that we write Accelerate programs with (slightly stylised)
+Haskell syntax. Accelerate code embedded in Haskell is not compiled to SIMD code
+by the Haskell compiler; instead, the Accelerate library includes a
+\emph{runtime compiler} that generates parallel SIMD code at application
+runtime.
+The collective operations in Accelerate are based on the scan-vector
+model~\citep{Chatterjee:1990vj,Sengupta:2007tc}, and consist of multi-dimensional
+variants of familiar Haskell list operations such as @map@ and @fold@, as well
+as array-specific operations such as index permutations.
+For example, recall our dot-product program:
+%
+\begin{lstlisting}
+dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
+dotp xs ys = fold (+) 0 ( zipWith (*) xs ys )
+\end{lstlisting}
+%
+The function @dotp@ consumes two Accelerate computations, each of which produces
+one-dimensional arrays (@Vector@) of @Float@ when evaluated, and it returns a
+computation which, when evaluated, yields a single (@Scalar@) result
+as output. The type @Acc@ indicates that the inputs and outputs to
+this function are embedded Accelerate computations --- they are
+evaluated in the \emph{object} language of dynamically generated
+parallel code, rather than the \emph{meta} language, which is vanilla
+Haskell.
+The Accelerate code for @dotp@ is almost identical to what we would write in
+standard Haskell over lists, and is certainly more concise than an explicitly
+GPU-accelerated or SIMD-vectorized\footnote{That is, a program utilising the
+SSE/AVX instruction set extensions for x86 processors.} low-level dot-product,
+while still compiling to efficient
+code~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
+
+The functions @zipWith@ and @fold@ are defined by the Accelerate library and
+have \emph{highly parallel} semantics, supporting up to as many parallel threads as
+data elements. The type of @fold@ is:
+%
+\begin{lstlisting}
+fold :: (Shape sh, Elt e)
+     => (Exp e -> Exp e -> Exp e)
+     -> Exp e
+     -> Acc (Array (sh:.Int) e)
+     -> Acc (Array sh e)
+\end{lstlisting}
+%
+The type classes @Shape@ and @Elt@ indicate that a type is admissible as an
+array shape and array element, respectively. Array shapes and indices are
+denoted by snoc-lists formed from @Z@ and @(:.)@ at both the type and value
+level, to define the dimensionality and extent of an array ---or the index of a
+particular element--- respectively~\citep{Keller:Repa,Chakravarty:acc-cuda}.
+Array elements can be signed and unsigned integers, floating point numbers,
+@Char@, @Bool@, shapes formed from @Z@ and @(:.)@, as well as nested tuples of
+all of these.
+
+The type signature for @fold@ also shows how Accelerate is stratified into
+collective \emph{array computations}, represented by terms of the type @Acc t@,
+and \emph{scalar expressions} @Exp t@. Values of type @Acc t@ and @Exp t@ do not
+execute computations directly, rather they represent abstract syntax trees (ASTs)
+constituting a computation that, once executed, will yield a value of type
+@t@. Collective operations comprise many scalar operations which are executed in
+data-parallel, but scalar operations \emph{can not} initiate collective
+operations. This stratification helps to statically exclude unbound nested,
+irregular parallelism, to enable efficient execution on constrained hardware
+such as GPUs, as discussed in previous
+work~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
+
+\subsection{Limitation \#1: Regular, flat data-parallelism}
+\label{sec:problem_1}
+
+A known limitation of flat data-parallel programming models is that they can
+inhibit modularity. For example, we might wish to lift our dot-product program
+to a matrix-vector product, by applying @dotp@ to each row of the input matrix:
+%
+\begin{lstlisting}
+mvm%$_\texttt{ndp}$% :: Acc (Matrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
+mvm%$_\texttt{ndp}$% mat vec =
+  let Z :. m :. _ = shape mat
+  in  generate (Z:.m) (\row -> the $ dotp vec (slice mat (row :. All)))
+\end{lstlisting}
+%
+Here, @generate@ creates a one-dimensional vector containing @m@ elements by
+applying the supplied function at each index in data-parallel. At each index, we
+extract the appropriate row of the matrix using @slice@,%
+\footnote{The \inl{slice} operation is a generalised array indexing function
+which is used to cut out \emph{entire dimensions} of an array. In this example,
+we extract \inl{All} columns at one specific \inl{row} of the given
+two-dimensional matrix, resulting in a one-dimensional vector.}
+and pass this to our existing @dotp@ function together with the input vector.
+Unfortunately, since both @generate@ and @dotp@ are data-parallel operations,
+this definition requires nested data-parallelism and is thus not permitted in flat data-parallelism.%
+\footnote{More specifically, the problem lies with the data-parallel operation
+\inl{slice} \emph{which depends on} the scalar argument \inl{row}. The clue that
+this definition includes nested data-parallelism is in the use of the function
+\inl{(the :: Acc (Scalar a) -> Exp a)}, effectively concealing that \inl{dotp}
+is a collective array computation in order to match the type expected by
+\inl{generate}, which is that of scalar expressions.}
+Consequently, we cannot reuse @dotp@ to implement matrix-vector multiplication; instead, we have to write it from scratch.
+
+Similarly, computations on irregular structures, such as sparse matrices, which are most naturally expressed in nested form, require an unwieldy encoding when we are restricted to only flat data-parallelism.
+
+% example NDP/MVM bugs:
+% https://github.com/AccelerateHS/accelerate/issues/63
+% https://github.com/AccelerateHS/accelerate/issues/135
+
+% \begin{lstlisting}
+% mvm%$_{rep}$% :: Acc (Matrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
+% mvm%$_{rep}$% mat vec =
+%    let Z :. m :. _ = shape mat
+%        vec'        = replicate (Z :. m :. All) vec
+%    in
+%    fold (+) 0 ( zipWith (*) mat vec' )
+% \end{lstlisting}
+
+% \tlm{possible reviewer complaint: do sequences solve this problem, or do you
+% just punt the problem one level up the hierarchy. Is it worth it / what is the
+% limitation of that? why not full NDP? cf. ndp2gpu paper from ICFP'12.}
+%
+% 1. NDP2GPU did not demonstrate anything we did not already know, namely both
+%    NESL and segmented/scans on GPUs have been well studied. Critically, it
+%    failed to show whether or not that combination on GPUs _makes sense_.
+%
+% 2. NDP2GPU was never a usable system
+%
+% 3. Our approach allows us to address an additional problem, namely that of
+%    memory usage, which is historically a massive problem for flattening-based
+%    approaches.
+
+\subsection{Limitation \#2: Memory usage}
+\label{sec:problem_2}
+
+Collection-oriented array-based programming languages like Accelerate
+provide a convenient programming model for SIMD architectures, but are hampered by resource constraints, such as limited main memory. This is particularly problematic for compute
+accelerators such as GPUs, which have their own ---much
+smaller--- high-performance memory areas separate from the host's main memory.%
+\footnote{The current top-of-the-line NVIDIA Quadro GP100 has 16GB of on-board
+memory; much less than the amount of host memory one can expect in a
+workstation-class system this product is aimed at. Most other GPUs include significantly less memory.}
+As many collective array operations require random access to statically unspecified index ranges, arrays must generally be loaded into device memory in their entirety.
+
+Where algorithmically feasible, such devices require us to split the input into \emph{chunks}, which we stream onto, process, and stream off of the device one by one. As illustrated by the function @dotp@$\texttt{stream}$ in the introduction, this requires a form of nesting if we want to maintain code portability across architectures with varying resource limits, while still writing high-level, declarative code.
+
+% How is this helping to motivate nesting in any way? -=chak
+%
+% Furthermore, the typical solution to our first problem (\S\ref{sec:problem_1})
+% is by use of the \emph{flattening transform}~\citep{Blelloch:compiling1988},
+% which converts source programs using nested data-parallelism into ones using
+% just flat data-parallelism. Unfortunately, the flattening transform often
+% results in programs which suffer a severe blow-up in their asymptotic time and
+% space complexity~\citep{Lippmeier:replicate,Palmer:piecewise}, limiting their
+% utility and further exacerbating the problem of running our programs on
+% memory-constrained devices.
+

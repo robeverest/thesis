@@ -1,0 +1,44 @@
+\input{preamble.tex}
+
+\begin{document}
+
+
+% \special{papersize=8.5in,11in}
+\setlength{\pdfpageheight}{\paperheight}
+\setlength{\pdfpagewidth}{\paperwidth}
+
+\title{Streaming Irregular Arrays}
+
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{Contents}
+\tableofcontents\markboth{Contents}{Contents}
+
+\cleardoublepage
+\phantomsection
+\renewcommand{\listfigurename}{Figures}
+\addcontentsline{toc}{chapter}{\listfigurename}
+\listoffigures\markboth{\listfigurename}{\listfigurename}
+
+% \cleardoublepage
+% \phantomsection
+% \addcontentsline{toc}{chapter}{\lstlistlistingname}
+% \lstlistoflistings\markboth{\lstlistlistingname}{\lstlistlistingname}
+% \addtocontents{lol}{\vspace{10pt}}
+
+\cleardoublepage
+\phantomsection
+\renewcommand{\listtablename}{Tables}
+\addcontentsline{toc}{chapter}{\listtablename}
+\listoftables\markboth{\listtablename}{\listtablename}
+
+\input{chapter/01-Introduction.tex}
+\input{chapter/02-Background.tex}
+\input{chapter/03-Preliminaries.tex}
+\input{chapter/04-Motivation.tex}
+\input{chapter/05-Implementation.tex}
+\input{chapter/06-Results.tex}
+% \input{chapter/08-Conclusion.tex}
+
+\bibliography{thesis}
+\end{document}

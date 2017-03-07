@@ -1,0 +1,224 @@
+\chapter{Motivation}
+
+\section{Sequences}
+\label{sec:sequences}
+\TODO{Revise}
+
+We propose the use of \emph{irregular sequences} (or \emph{streams}) of arrays as a significant step towards overcoming the limitations outlined in the previous section. An irregular sequence of arrays is an ordered collection of arrays, where the extent (the size of the array in each dimension) of the arrays within one sequence may vary. Sequences of arrays, whose type we denote as @[Array sh e]@ in the embedded language, immediately provide an irregular nested data structure; hence, addressing the first limitation. Moreover, we will see that sequences of arrays in an embedded language naturally give rise to a notion of \emph{sequences of array computations}, providing us with the freedom of scheduling required to generate code which minimises memory use in resource-constrained target architectures; thereby addressing the second limitation.
+
+In the practical implementation that we use for the benchmarks, we restrict the level of nesting to a depth of one; that is, we support sequences of arrays, but not sequences of sequences of arrays. Previous work~\citep{Lippmeier:replicate} showed that the efficient implementation of more deeply nested irregular structures requires sophisticated runtime support whose SIMD implementation (e.g., for GPUs) raises an entire set of questions in its own right. However, we would like to stress that the program transformation at the core of this work, presented in Section~\ref{sec:Vectorisation}, is \emph{free of this limitation} and may be used on programs with deeper nesting levels. Nevertheless, we leave further exploration of this generalisation to future work.
+
+Previous work~\citep{Madsen:2015} discussed the use of \emph{regular} sequences, where the extent of all arrays in a sequence must be the same, to address only the second of the discussed two limitations. We substantially improve on this previous work by showing that with irregular sequences, we can (1) simultaneously make progress towards overcoming both limitations; and (2) address the second limitation for a wider variety of applications. In addition to being less expressive, regular sequences come with another significant downside: sequence regularity is a dynamic property of a program, compromising static program safety.
+
+\subsection{Accelerate sequences}
+% 'sequences are [one-shot] streams'? RCE no branching in sequences right?
+
+% RCE: That's not entirely true. We do support branching in the form of things
+% like unzip. The cost we pay for having that is we can't support delaying a
+% stream by an abitrary amount, something that would be necessary for appending
+% streams.
+
+% TLM: hmm... that does not seem like a good idea. It is a bit tricky to provoke
+% though because there seems no way to go from (Seq a -> Seq [a]), so once you
+% get down to a basic (Seq a) the only thing you can do to it is `collect` it,
+% right? This is why the (++) is on the outside in this example, but I'm not too
+% familiar with your API. Is this the error you expect?
+%
+% > *** Exception: Nested sequence computation is not closed in its accumulators
+% > CallStack (from HasCallStack):
+% >   error, called at ./Data/Array/Accelerate/Trafo/Vectorise.hs:1209:9 in main:Data.Array.Accelerate.Trafo.Vectorise
+%
+% ```
+% buffering :: [Vector Float] -> Acc (Vector Float)
+% buffering vl =
+%   let vs      = streamIn vl
+%       v2      = mapSeq (\x -> lift (x,x)) vs
+%       (xs,ys) = unzipSeq v2
+%       empty   = use $ fromList (Z:.0) []
+%       xs'     = foldSeqFlatten (\a _ b -> a A.++ b) empty xs
+%       ys'     = foldSeqFlatten (\a _ b -> a A.++ b) empty ys
+%   in
+%   collect xs' A.++ collect ys'
+% ```
+
+% RCE: It's a tradeoff, but it's one of the essential problems with streaming
+% languages. When an element is pulled from a stream, it has to be either only
+% consumed by one thing, or be consumed by multiple things at the same time.
+% Yes, once you get down to a (Seq a) all you really can do is collect it or
+% tuple it up with another sequence computation. The types won't let you write
+% something like a sequence append or anything that would require delaying a
+% sequence.
+%
+% If you were to imagine an alternative design where we didn't allow branching
+% but did allow arbitrary delaying of sequences (e.g. for append), we'd not only
+% significantly restrict the programs we can write, but it would also be very
+% hard to encode this restriction without linear types or generating runtime
+% errors every time a sequence is used more than once.
+%
+% The example you give actually should work. I suspect the error might be
+% because I broke streamIn. I'll look into it.
+
+% TLM: Right, so I think, the thing that we want to talk about is that once you
+% pull an element off the sequence you can use it multiple times (e.g. maxSum),
+% but we don't allow buffering/delaying stream elements (no stream append) which
+% maintains the memory usage aspects.
+%
+% I changed the above to use 'toSeq' instead and see that it just does two
+% separate traversals of the input. That makes sense though, due to the two uses
+% of collect (and you can turn it into a single traversal by tupling xs' and
+% ys').
+%
+% So it seems to me that unzipSeq does a somewhat surprising thing by completely
+% splitting the stream all the way back to the source. The stream doesn't branch
+% per-se, instead you get back two independent traversals of the input. So
+% streams are not once-only in the sense that even though we only pull an
+% element once, we might want to pull that same element multiple times from
+% different uses of collect. I think that fits in with our overall language
+% design though (i.e., we've never considered monadic computations; so pulling
+% from networks or random number generators etc. is not something we ever deal
+% with). That is a potentially large amount of re-computation (bad), but on the
+% other hand it is explicit in the multiple uses of collect (good).
+%
+% Does that all sound right to you?
+
+% Yeah, that sounds good. We should try to make it fairly explicit that while a
+% single collect operation performed on a Seq computation guarantees only a
+% single traversal of all input and intermediate sequences (though not
+% necessarily a single traversal of arrays in the sequence-- e.g. maxSum),
+% calling collect twice forces two lots of computation.
+
+In Accelerate, we distinguish embedded scalar computations and embedded array computations by the type tags @Exp@ and @Acc@, respectively. Similarly, we use a new tag, @Seq@, to mark sequence computations. And, just like an array computation of type @Acc (Array sh e)@ encompasses many data-parallel scalar computations of type @Exp e@ to produce an array, a sequence computation of type @Seq [Array sh e]@ comprises many stream-parallel array computations of type @Acc (Array sh e)@. Specifically, we consider values of type @[Array sh e]@ to be sequences (or streams) of arrays, and values of type @Seq seq@ to be sequences (or streams) of array \emph{computations}. This is an important distinction. Evaluating a value of type @Seq seq@ does not trigger any sequence computation, it only yields the \emph{representation} of a sequence computation. To actually trigger a sequence computation, we must consume the sequence into an array computation to produce an array by way of the function:
+%
+\begin{lstlisting}
+consume :: Arrays arr => Seq arr -> Acc arr
+\end{lstlisting}
+
+To consume a sequence computation, we need to combine the stream of arrays into a single array first --- note how the argument of @consume@ takes a @Seq arr@ and not a @Seq [arr]@. Depending on the desired functionality, this can be achieved in a variety of ways. The most common combination functions are @elements@, which combines all elements of all the arrays in the sequence into one flat vector; and @tabulate@, which concatenates all arrays along the outermost dimension (trimming according to the smallest extent along each dimension, much like multi-dimensional uniform @zip@):
+%
+\begin{lstlisting}
+elements :: (Shape sh, Elt e) => Seq [Array sh e] -> Seq (Vector e)
+tabulate :: (Shape sh, Elt e) => Seq [Array sh e] -> Seq (Array (sh:.Int) e)
+\end{lstlisting}
+
+Conversely, we produce a stream of array computations by a function that is not unlike a one-dimensional sequence variant of @generate@ --- we encountered the latter in the example @mvm@$_{\mathtt{ndp}}$ (Section~\ref{sec:problem_1}):
+%
+\begin{lstlisting}
+produce :: Arrays a => Exp Int -> (Acc (Scalar Int) -> Acc a) -> Seq [a]
+\end{lstlisting}
+%
+Its first argument determines the length of the sequence and the second is a stream producer function that is invoked once for each sequence element.
+
+In addition to these operations for creating and collapsing sequences, we only need to be able to map over sequences with:
+%
+\begin{lstlisting}
+mapSeq :: (Arrays a, Arrays b) => (Acc a -> Acc b) -> Seq [a] -> Seq [b]
+\end{lstlisting}
+%
+to be able to elaborate the function @dotp@$_\texttt{stream}$ (from the introduction) into sequence-based matrix-vector multiplication:
+%
+\begin{lstlisting}
+mvm%$_{\texttt{seq}}$% :: Acc (Matrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
+mvm%$_{\texttt{seq}}$% mat vec =
+  let Z :. m :. _ = shape mat
+      rows        = produce m (\row -> slice mat (Z :. row :. All)) :: Seq [Vector Float]
+  in consume (elements (mapSeq (dotp vec) rows))
+\end{lstlisting}
+% TLM: note that the syntax used here in the slice specification is slightly
+% different than in the previous mvm_ndp. There, we had (row ~ Z :. Int) and
+% here it is (row ~ Int) (-ish... actually a scalar array containing an int). It
+% might be simpler to just ignore that and use the same (row :. All) as we did
+% previously. This is similar to how I'm ignoring use of lift and unlift.
+%
+We stream the matrix into a sequence of its rows using @produce@, apply the previously defined dot-product function @dotp@ to each of these rows, @combine@ the scalar results into a vector with @elements@, and finally @consume@ that vector into a single array computation that yields the result.
+
+% TLM: other examples & features of sequences, such as maxSum and the discussion
+% rob and I had above.
+
+Although we are re-using Haskell's list type constructor @[]@ for sequences in the embedded language, the Accelerate code generator does not actually represent them in the same way. Nevertheless, the notation is justified by our ability to incrementally stream a lazy list of arrays into a sequence of arrays for pipeline processing with:
+%
+\begin{lstlisting}
+streamIn :: (Shape sh, Elt e) => [Array sh e] -> Seq [Array sh e]
+\end{lstlisting}
+
+\subsection{Irregularity}
+
+The arrays in the sequence used in the implementation of @mvm@$_{\texttt{seq}}$ are all of the same size; after all, they are the individual rows of a dense matrix. In contrast, if we use sequences to compactly represent \emph{sparse} matrices, the various sequence elements will be of varying size, representing an irregular sequence or stream computation.
+
+We illustrate this with the example of the multiplication of a sparse matrix with
+a dense vector. We represent sparse matrices in popular \emph{compressed row format (CSR)},
+where each row stores only the non-zero elements together with the corresponding
+column index of each element. For example, the following matrix is represented
+as follows (where indexing starts at zero):
+%
+\[
+\left(
+\begin{array}{ccc}
+  7 & 0 & 0 \\
+  0 & 0 & 0 \\
+  0 & 2 & 3
+\end{array} \right)
+~~~~ \Rightarrow
+~~~~ [~[(0,7.0)],~[],~[(1,2.0),(2,3.0)]~]
+\]
+% %
+% corresponds to:
+% \[
+% [[(0,7.0)],[],[(1,2.0),(2,3.0)]]
+% \]
+% %
+% in the compressed row representation (note that indexing starts at zero).
+%
+Representing our sparse matrix as a sequence of the matrix rows in CSR format,
+we can define sparse-matrix vector product as:
+%
+\begin{lstlisting}
+type SparseVector a = Vector (Int, a)
+type SparseMatrix a = [SparseVector a]
+
+smvm%$_{\texttt{seq}}$% :: Seq (SparseMatrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
+smvm%$_{\texttt{seq}}$% smat vec
+  = collect . elements
+  $ mapSeq (\srow -> let (ix,vs) = unzip srow in dotp vs (gather ix vec)) smat
+\end{lstlisting}
+%
+When the irregularity is pronounced, we need to be careful with scheduling; otherwise, performance will suffer. We will come back to this issue in later sections.
+
+\subsection{Streaming}
+\label{sec:streaming}
+
+The @streamIn@ function (whose signature was given above) turns a Haskell list of arrays into a sequence or stream of those same arrays. If that stream is not consumed all at once, but rather array by array or perhaps chunkwise (processing several consecutive arrays at once), then the input list will be demanded lazily as the stream gets processed. Similarly, we have the function:
+%
+\begin{lstlisting}
+streamOut :: Arrays a => Seq [a] -> [a]
+\end{lstlisting}
+%
+which consumes the results of a sequence computation to produce an incrementally constructed Haskell list with all the results of all the array computations contained in the sequence. Overall, this allows for stream computations exploiting pipeline parallelism. In particular, the production of the stream, the processing of the stream, and the consumption of the stream can all happen concurrently and possibly on separate processing elements.
+
+Moreover, our support for irregularity facilitates balancing of resources. For example, if the sequence computation is executed on a GPU, the underlying scheduler can dynamically pick chunks of consecutive arrays from the sequence such that it (a) exposes sufficient parallelism to fully utilises the considerable parallelism offered by GPUs; while (b) ensuring that the limits imposed by the relatively small amounts of working memory are not exceeded. This flexibility, together with the option to map pipeline parallelism across multiple CPU cores, provides the high-level declarative notation that we sought in the introduction.
+
+To illustrate, we have implemented the core of an audio compression algorithm. The computation proceeds by, after some pre-processing, moving a sliding window across the audio data, performing the same computation at each window position. Finally, some post-processing is performed on the results of those windowed computations. As the computations at the various window positions are independent, they may be parallelised. However, each of the windowed computations on its own is also compute intensive and offers ample data-parallelism. The pre- and post-processing steps are comparatively cheap and consist of standard matrix operations, so we delegate those to an existing matrix library.\footnote{\url{https://hackage.haskell.org/package/hmatrix}}
+%instead of re-implementing them in Accelerate.
+
+This style of decomposition is common and well suited to a stream processing model. We perform the preprocessing in vanilla Haskell, stream the sequence of windowed computations through Accelerate code, and consume the results for post-processing. In our application, the stream is irregular, as the information density of the audio waveform varies at different times in the audio stream, which in turn leads to different array sizes for each windowed computation. If we choose to offload the Accelerate stream computations to a GPU, we realise a stream-processing pipeline between CPU and GPU computations.
+
+Although even the core of the audio algorithm is too long and complex to discuss here in detail, we outline the essential structure of the computation and how it relates to Accelerate sequences below:
+%
+\begin{lstlisting}
+type AudioData = %$\langle\text{tuple of arrays}\rangle$%
+
+zc_core = post_processing . zc_stream . pre_processing
+
+zc_stream :: AudioData -> [(Array DIM2 Double, Array DIM2 Double)]
+zc_stream audioData = streamOut $ mapSeq (processWindow audioData) windowIndexes
+  where
+    windowIndexes :: Seq [Scalar Int]
+    windowIndexes = produce (sizeOf audioData) id
+
+    processWindow :: AudioData -> Scalar Int -> Acc (Array DIM2 Double, Array DIM2 Double)
+    processWindow = ...
+\end{lstlisting}
+%
+The core of the algorithm, @zc_core@, consists of the steps of pre-processing the audio data, the Accelerate stream computation, and finally post-processing. The Accelerate stream computation generates a stream of window indexes (@windowIndexes@) using @produce@, maps the windowed data processing function @processWindow@ over that sequence using @mapSeq@, and incrementally produces a list of outputs, one per window, with @streamOut@. In the current setup, @pre_processing@ must be complete before stream processing can start; we choose to do this because, since the data in successive steps of the sliding window strongly overlap, the approach here is more efficient than explicitly creating a stream of windowed data. Instead, the input stream @windowIndexes@ is a sequence of integer values that indicate which window (subset of the input data) the associated sequence computation ought to extract from the input @audioData@. This setup is similar to the use of @generate@ and @slice@ in @mvm@$_{\texttt{ndp}}$ in Section~\ref{sec:problem_1}.
+
+In contrast to @pre_processing@ and stream generation, we do use pipeline parallelism to overlap the stream processing performed by @mapSeq (processWindow audioData)@ with the @post_processing@ by using @streamOut@. Hence, we have got three sources of parallelism: (1) @processWindow@ contains considerable data-parallelism; (2) the stream scheduler can run multiple array computations corresponding to distinct stream elements in parallel; and (3) @streamOut@ provides pipeline parallelism between stream processing and @post_processing@. The second source of parallelism allows the Accelerate runtime considerable freedom in adapting to the resources of the target system, and we will see in Section~\ref{sec:Evaluation} that this is helpful in providing performance portability between multicore CPUs and GPUs.
+
