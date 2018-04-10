@@ -1,6 +1,7 @@
 \documentclass[11pt,a4paper,twoside,dvipsnames]{book}
 
 \usepackage{a4wide}
+\usepackage[notext]{stix}
 \usepackage{amsfonts}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -9,15 +10,20 @@
 \usepackage{booktabs}
 \usepackage{breakcites}
 \usepackage{caption}
+\usepackage[splitrule]{footmisc}
+\usepackage{framed}
 \usepackage{graphicx}
 \usepackage{ifdraft}
 \usepackage[final]{listings}
+\usepackage{mathpartir}
 \usepackage{multicol}
-\usepackage[sort&compress,nonamebreak]{natbib}
+\usepackage[sort&compress,nonamebreak,numbers]{natbib}
 \usepackage{pdf14}
+\usepackage{semantic}
 \usepackage{setspace}
 \usepackage{soul}     % \hl{} command for highlighting
 \usepackage{stmaryrd}
+\usepackage{tabularx}
 \usepackage{textcomp}
 \usepackage{upgreek}
 \usepackage{upquote}
@@ -56,6 +62,11 @@
 \newcommand{\bnfdef}{\ensuremath{::=}}
 \newcommand{\alt}{\ensuremath{\;|\;}}
 
+\newcommand{\nesl}{\textsc{Nesl}}
+\newcommand{\vcode}{\textsc{Vcode}}
+\newcommand{\plisp}{\textsc{Paralation Lisp}}
+\newcommand{\ndp}{$\lambda_{\text{NDP}}$}
+
 % listings
 \lstloadlanguages{Haskell}
 
@@ -86,8 +97,8 @@
 \lstdefinestyle{haskell}{%
     language=Haskell,
     upquote=true,
-    deletekeywords={case,class,data,default,deriving,do,in,instance,let,of,type,where},
-    morekeywords={[2]class,data,default,deriving,family,instance,type,where},
+    deletekeywords={case,class,data,default,deriving,do,in,instance,let,of,type,where,newtype},
+    morekeywords={[2]class,data,default,deriving,family,instance,newtype,type,where,prj},
     morekeywords={[3]in,let,case,of,do},
     literate=
         {\\}{{$\uplambda$}}1
@@ -104,6 +115,7 @@
         {forall}{{$\forall$}}1
         {exists}{{$\exists$}}1
         {...}{{$\dots$}}3
+        {.+}{{$\oplus$}}1
 %       {`}{{\`{}}}1
 %       {\ .}{{$\circ$}}2
 %       {\ .\ }{{$\circ$}}2
@@ -127,13 +139,15 @@
         {>=}{{$\geq$}}2
         {<-}{{$\leftarrow$}}2
         {<=}{{$\leq$}}2
-        {=>}{{$\Rightarrow$}}2
+        {=>}{{$\Rightarrow$\space}}3
         {|}{{$\mid$}}1
 %        {~}{{$\sim$}}1
         {forall}{{$\forall$}}1
         {exists}{{$\exists$}}1
         {...}{{$\cdots$}}3
         {~}{{$\sim$}}1
+        {++}{{$\doubleplus$}}1
+        {.+}{{$\oplus$}}1
         %
         % TLM: Rob, see above.
         % {Flat}{{$\mathcal{F}$}}2
@@ -160,7 +174,8 @@
         {exists}{{$\exists$}}1
         {...}{{$\dots$}}3
         {Norm}{{$\mathcal{N}$}}2
-        {Flat}{{$\mathcal{V}$}}2
+        {Vect}{{$\mathcal{F}$}}2
+        {Vector}{{Vector}}6
         {Lift}{{$\mathcal{L}$}}2
         {[|}{{$\llbracket$}}1
         {|]}{{$\rrbracket$}}1
@@ -169,15 +184,30 @@
         {_2}{{$_2$}}1
         {_3}{{$_3$}}1
         {_l}{{$_l$}}1
+        {_x}{{$_x$}}1
         {_n}{{$_n$}}1
         {_n+1}{{$_{n+1}$}}3
+        {_new}{{$_{\textit{new}}$}}3
+        {_old}{{$_{\textit{old}}$}}3
+        {_norm}{{$^{\textit{norm}}$}}4
+        {_flat}{{$^{\textit{flat}}$}}3
+        {_1_flat}{{$_1^{\textit{flat}}$}}3
+        {_2_flat}{{$_2^{\textit{flat}}$}}3
+        {_3_flat}{{$_3^{\textit{flat}}$}}3
+        {_n_flat}{{$_n^{\textit{flat}}$}}3
         {_i}{{$_i$}}1
         {_v}{{$_v$}}1
+        {_A}{{$_A$}}1
         {_S}{{$_S$}}1
         {_R}{{$_R$}}1
         {_Ir}{{$_{Ir}$}}2
         {_F}{{$_F$}}1
+        {_N}{{$_\mathcal{N}$}}1
+        {_V}{{$_\mathcal{V}$}}1
+        {_seg}{{$_{seg}$}}3
+        {_NDP}{{$_{\text{NDP}}$}}3
         {.+}{{$\oplus$}}1
+        {++}{{$\doubleplus$}}1
         {::=}{{$\Coloneqq$}}3
         {Gamma}{{$\Gamma$}}1
         {|-}{{$\vdash$}}1
@@ -194,8 +224,16 @@
   {\lstset{style=haskell}}%
   {}
 
+\newcommand{\optionrule}{\noindent\rule{1.0\textwidth}{0.75pt}}
+
+\newenvironment{aside}
+{\def\FrameCommand{\hspace{2em}}
+    \MakeFramed {\advance\hsize-\width}\optionrule}
+{\par\vskip-\smallskipamount\optionrule\endMakeFramed}
+
 % Bibliography
 \bibliographystyle{abbrvnat}
+% \setcitestyle{authoryear,open={[},close={]}}
 
 \let\Cite\cite
 \renewcommand{\cite}{\nolinebreak\Cite}

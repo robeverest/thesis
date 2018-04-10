@@ -1,0 +1,53 @@
+\chapter{Conclusion}
+
+In this work we argue that adding even one level of nesting to array programs offers considerable benefits to modularity. Moreover, if that form of nesting is in sequences we get the additional benefit of reduced memory constraints.
+
+In Chapter~\ref{chap:motivation} we present the irregular array sequence as an abstract structure and how it adds an additional layer of expressiveness to the array language Accelerate. Even with a relatively small set of operations on sequences, we can express programs that were awkward and non-modular to write before. As well as programs that would otherwise require specific knowledge of the hardware to write without exhausting available GPU memory.
+
+In Chapter~\ref{chap:theory} we describe a novel extension to Blelloch's flattening transform, that we have used to enable irregular arrays sequences, but which can be applied more generally to all nested array structures. This extension is able to identify computations which are regular and generate code that is optimal for that regularity while generating conventional flattened array code for irregular computations.
+
+In Chapter~\ref{chap:enhancements} we describe two further novel components of our work. We introduce the Accelerate Foreign Function Interface (FFI), a new way of allowing for an embedded language to support foreign functions. We also introduce a method of garbage collection that allows for GPU memory to be treated like a cache for arrays that are used in GPU computations.
+
+Finally, Chapter~\ref{chap:Evaluation} evaluates our work with a series of benchmarks.
+
+\section{Contribution}
+
+The work contains 2 major contributions and 2 minor contributions. The two major ones are regularity identifying flattening and irregular array sequences. They are closely related as the former is necessary to implement the latter with expected performance gains. However, it is not only applicable to that domain. Regularity identifying flattening can be applied to any context where efficient nested arrays are needed.
+
+The minor contributions further extend what we can practically express in an array language, by dynamically reducing memory usage through GPU-aware garbage collection and by giving access to highly-optimised 3rd party libraries through a foreign function interface.
+
+\subsection{Regularity identifying flattening}
+
+While program flattening via Blelloch's flattening transform is well understood, languages that implement it have either assumed everything is irregular~\cite{Blelloch:nesl1995,bergstrom:ndp2gpu,Chakravarty:DPH,Fluet:2007:manticore,proteus-frontiers95}, or, more recently, that everything is regular~\cite{Henriksen:2017futhark}. While the former is most general, it misses opportunities to take advantage of efficiency of regular scheduling. The latter, however, is unable to express irregular computations.
+
+By having a flattening transform that is able to identify regular (sub)programs and generate flat array code for them, while still the flat array code suitable for irregular structures otherwise, we get the best of both worlds. This enable us to support not only irregular nested programs and regular nested programs, but also programs that combine both.
+
+\subsection{Irregular array sequences}
+
+Given two, almost entirely independent, limitations on flat array programs, in this work we show that both can be overcome with the addition of one feature. Irregular sequences of arrays allow us to tk the loss of modularity in flat array programs, without having to tk the challenges of more deeply nested structures. Moreover, they gives us portability between GPUs and CPUs, in particular, their different memory limitations. The same program can be executed on both architectures and, even if the GPU does not have sufficient memory to perform the computation in-core, it will have tk performance on both.
+
+\subsection{GPU-aware garbage collection}
+
+A feature that is useful for both sequence programs and array programs alike is for the garbage collector to be aware of the GPU and its, typically, much smaller memory than the main memory of the system it is in. While the CPU is able to swap pages out to disk, prior to our work, there was no was no system for swapping memory out of the GPUs memory to host memory. By both hooking into GHC's garbage collector, and keeping track of what arrays are in GPU memory, we are able to dynamically manage the memory of the GPU such that the programmer no longer has to concern themselves with exhausting it. A high-level language should abstract away such details. With our work, a programmer only has to concern themselves with whether individual arrays will fit in GPU memory, not whatever the working memory of their program is, which is typically much harder.
+
+\subsection{A Foreign Function Interface for an embedded language}
+
+Foreign function interfaces have proven to be invaluable to the adoption of high-level languages\cite{Chakravarty:haskell-ffi}. Prior to our work, this was an area unexplored in the domain of embedded languages. By introducing an FFI to Accelerate, we made it possible to call out to already highly-optimised low-level libraries from within high-level programs. In addition, different backends can be supported by having different foreign functions for each backend.
+
+\section{Future work}
+
+What we describe in this dissertation could be extended in a number of different ways. Here, we present a few key research possibilities.
+
+\subsection{More sequence operations}
+
+Even though we can express realistic sequence programs with the operations we have, like with different array combinators there is room for more elaborate sequence combinators. In our work, we wanted to avoid the problem of unbounded buffers, but if such a restriction were relaxed (say by supporting data structures that allow for fast concatenation) a much wider range of operations is possible.
+
+\TODO{Example?}
+
+\subsection{More nested structures}
+
+Given the regularity identifying flattening transform in Chapter~\ref{chap:theory} an obvious piece of future work is to support arbitrary nested arrays in Accelerate. While we have demonstrated that it is possible to do so in a way that takes advantage of regularity, there are still questions that arise. In particular, scheduling of deeply nested programs on GPUs has proven to be challenging\cite{bergstrom:ndp2gpu}. Additionally, to really support nested structures, sum and recursive data types are needed. This can be achieved, in a limited fashion, with such types in the meta language, but if that is sufficient or whether Accelerate itself needs them is still an open question.
+
+\subsection{Multi-GPU parallelism}
+
+With sequences, we introduce a new level of parallelism. We've already shown how pipeline parallelism can be used to take advantage of both the CPU and GPU by executing two different stages at the same time, one on the GPU and one on the CPU. However, doing this on multiple GPUs is yet to be explored. It's already possible, with Accelerate's existing support for multiple GPUs, to manually schedule different computations on different GPUs, but to do so automatically is unexplored. Being able to define a sequence pipeline and have the different stages allocated across the available GPUs in such a way as to maximise efficiency (both in terms of work and in terms of data transfer) would be a powerful language feature.

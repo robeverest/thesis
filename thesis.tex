@@ -2,7 +2,7 @@
 
 \begin{document}
 
-
+\frontmatter
 % \special{papersize=8.5in,11in}
 \setlength{\pdfpageheight}{\paperheight}
 \setlength{\pdfpagewidth}{\paperwidth}
@@ -32,13 +32,16 @@
 \addcontentsline{toc}{chapter}{\listtablename}
 \listoftables\markboth{\listtablename}{\listtablename}
 
+\mainmatter
+
 \input{chapter/01-Introduction.tex}
 \input{chapter/02-Background.tex}
-\input{chapter/03-Preliminaries.tex}
-\input{chapter/04-Motivation.tex}
+\input{chapter/03-Motivation.tex}
+\input{chapter/04-Theory.tex}
 \input{chapter/05-Implementation.tex}
-\input{chapter/06-Results.tex}
-% \input{chapter/08-Conclusion.tex}
+\input{chapter/06-Enhancements.tex}
+\input{chapter/07-Results.tex}
+\input{chapter/08-Conclusion.tex}
 
 \bibliography{thesis}
 \end{document}

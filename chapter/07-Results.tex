@@ -1,5 +1,5 @@
-\section{Evaluation}
-\label{sec:Evaluation}
+\chapter{Evaluation}
+\label{chap:Evaluation}
 
 % \rob{Hopefully we'll actually have something good to look at here.}
 
@@ -149,7 +149,7 @@
 \end{table}
 
 
-The objective of this paper is to improve the expressive power of a flat
+The objective of our work is to improve the expressive power of a flat
 data-parallel array language with the introduction of irregular structures and a
 limited form of nested parallelism. However, we would also like that this extra
 expressiveness imposes only a reasonable cost on performance. We demonstrate the
@@ -168,10 +168,10 @@ criterion\footnote{\url{http://hackage.haskell.org/package/criterion}} via
 linear regression.% , unless otherwise noted.
 
 
-\subsection{Sparse-Matrix Vector Multiplication (SMVM)}
+\section{Sparse-Matrix Vector Multiplication (SMVM)}
 
 \begin{table}
-\begin{small}
+\begin{scriptsize}
 \begin{center}
 \makebox[\textwidth][c]{%
 \begin{tabular}{lrrrrrrrrrrrrr}
@@ -432,7 +432,7 @@ linear regression.% , unless otherwise noted.
   \bottomrule
 \end{tabular}}
 \end{center}
-\end{small}
+\end{scriptsize}
 \caption{Overview of sparse matrices tested and results of the benchmark.
 Measurements in GFLOPS/s (higher is better). Columns labelled N=$n$ are CPU
 implementations using $n$ threads. Competitor implementations are Intel MKL on
@@ -441,11 +441,8 @@ the CPU and NVIDIA cuSPARSE on the GPU.}
 \end{table}
 
 SMVM multiplies a sparse general matrix in compressed row format
-(CSR)~\cite{Chatterjee:1990vj} with a dense vector. Table~\ref{tab:smvm}
-compares Accelerate to the Intel Math Kernel
-Library\footnote{\url{https://software.intel.com/en-us/intel-mkl}} (MKL v11.3.2,
-@mkl_cspblas_dcsrgemv@) on the CPU, and NVIDIA
-cuSPARSE\footnote{\url{https://developer.nvidia.com/cusparse}} (v8.0,
+(CSR)~\cite{Chatterjee:1990vj} with a dense vector (see Section~\ref{sec:irregularity}). Table~\ref{tab:smvm} compares Accelerate to the Intel Math Kernel Library\footnote{\url{https://software.intel.com/en-us/intel-mkl}} (MKL v11.3.2,
+@mkl_cspblas_dcsrgemv@) on the CPU, and NVIDIA cuSPARSE\footnote{\url{https://developer.nvidia.com/cusparse}} (v8.0,
 @cusparseDcsrmv@) on the GPU. Test matrices are derived from a variety of
 application domains~\cite{sparse_matrix_collection} and are available
 online.\footnote{\url{http://www.cise.ufl.edu/research/sparse/matrices/list_by_id.html}}
@@ -486,7 +483,16 @@ paper achieves 56\% the performance of the highly-tuned reference implementation
 % (30MB per socket).
 % Notice the performance drop-off of MKL once the dataset no longer fits into CPU cache (30MB).
 
-\subsection{Audio processor}
+\begin{figure}
+\centering
+\includegraphics[width=0.8\textwidth]{benchmarks/smvm/figs/smvm.pdf}
+\caption{SMVM of Queen\_4147 dataset}
+% comparing this work (Accelerate+Sequences) to the prior work
+% (Accelerate) and a reference implementation (Intel MKL) on the CPU.}
+\label{fig:smvm_queen4147}
+\end{figure}
+
+\section{Audio processor}
 
 The audio processing benchmark tests the algorithm described in
 Section~\ref{sec:streaming}, computing the @zc_stream@ part of the algorithm
@@ -528,14 +534,20 @@ this benchmark.
 % good though, so we could include that. An example is in the numbers file. it is
 % just that the absolute performance is bad...}
 
+\begin{figure}
+\centering
+\includegraphics[width=0.8\textwidth]{benchmarks/zero-crossings/figs/zero-crossings.pdf}
+\caption{Audio processor}
+\label{fig:zero-crossings}
+\end{figure}
 
-\subsection{MD5 Hash}
+
+\section{MD5 Hash}
 
 The MD5 message-digest algorithm~\cite{Rivest:MD5} is a cryptographic hash
 function producing a 128-bit hash value that can be used for cryptographic and
 data integrity applications. The MD5 benchmark attempts to find the plain text
-of an unknown hash via a standard dictionary attack.
-% using a database of 14 million known plaintexts.
+of an unknown hash with a database of known plaintexts.
 %
 % ; for each plaintext entry in the
 % dictionary, we compute the hash of that entry and compare it to the unknown.
@@ -554,8 +566,14 @@ overlap computation with pre-loading the next chunk of input into memory, which
 would help close this performance gap. The strong scaling graph is shown in
 Figure~\ref{fig:hashcat}.
 
+\begin{figure}
+\centering
+\includegraphics[width=0.8\textwidth]{benchmarks/hashcat/figs/hashcat.pdf}
+\caption{MD5 hash recovery}
+\label{fig:hashcat}
+\end{figure}
 
-\subsection{PageRank}
+\section{PageRank}
 
 PageRank~\cite{Page:pagerank} is a link analysis algorithm which
 estimates the relative importance of each element of a linked set of documents. As
@@ -568,28 +586,9 @@ this representation is not as space efficient as an adjacency list, it is the
 one typically chosen for this algorithm as it is more suitable for parallelism.
 
 \begin{figure}
-  \centering
-  \begin{minipage}{0.5\textwidth}%
-    \includegraphics[width=\textwidth]{benchmarks/smvm/figs/smvm.pdf}
-    \caption{SMVM of Queen\_4147 dataset}
-    % comparing this work (Accelerate+Sequences) to the prior work
-    % (Accelerate) and a reference implementation (Intel MKL) on the CPU.}
-    \label{fig:smvm_queen4147}
-  \end{minipage}%
-  \begin{minipage}{0.5\textwidth}%
-    \includegraphics[width=\textwidth]{benchmarks/zero-crossings/figs/zero-crossings.pdf}
-    \caption{Audio processor}
-    \label{fig:zero-crossings}
-  \end{minipage}
-  \begin{minipage}{0.5\textwidth}%
-    \includegraphics[width=\textwidth]{benchmarks/hashcat/figs/hashcat.pdf}
-    \caption{MD5 hash recovery}
-    \label{fig:hashcat}
-  \end{minipage}%
-  \begin{minipage}{0.5\textwidth}%
-    \includegraphics[width=\textwidth]{benchmarks/pagerank/figs/pagerank.pdf}
-    \caption{PageRank analysis of Wikipedia (English)}
-    \label{fig:pagerank}
-  \end{minipage}%
+\centering
+\includegraphics[width=0.8\textwidth]{benchmarks/pagerank/figs/pagerank.pdf}
+\caption{PageRank analysis of Wikipedia (English)}
+\label{fig:pagerank}
 \end{figure}
 

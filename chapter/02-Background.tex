@@ -1,50 +1,325 @@
 \chapter{Background}
+\label{chap:background}
+
+Before we explore the contributions of this work, we will first give a brief overview of the technologies and concepts it is built upon and the context in which it exists. More specifically, we will describe:
+
+\begin{itemize}
+  \item The CUDA framework for general purpose GPU programming (\ref{sec:cuda}).
+  \item The Nested Data Parallel model of programming and the concept of program flattening, or vectorisation, that underlies it (\ref{sec:ndp}).
+  \item The Accelerate language and its implementation in Haskell (\ref{sec:background-accelerate}).
+\end{itemize}
 
 \section{CUDA}
+\label{sec:cuda}
 
-\section{Nested Data Parallelism (NDP)}
+The CUDA (Compute Unified Device Architecture)\cite{cuda} programming environment provides libraries and extensions to LLVM, C and C++, as well as Fortran. They enable programs to be written for and executed on NVIDIA GPUs.
+
+The Accelerate compiler I will describe in \ref{sec:background-accelerate} generates LLVM IR that is compiled by the CUDA framework. For the purposes of explanation, however, I will give examples in CUDA C as that is how the majority of programmers use the CUDA framework.
+
+Concretely, a C programmer wanting to take advantage of a CUDA capable GPU would annotate functions in their program with special directives indicating they are intended for GPU execution. When run through the \emph{nvcc} compiler any function annotated with these directives will be compiled into code in the Parallel Thread Execution (PTX) instruction set. These annotated functions, known as kernels, can be called with a special notation that specifies how they should be scheduled, in particular how many multiprocessors to use. The code in~\ref{lst:cuda} shows a simple example where two vectors of size $N$ are added together by $N$ threads.
+%
+\begin{lstlisting}[language=C, label=lst:cuda, caption={Adding two $N$ length vectors in CUDA C\citep{cuda}}]
+// Kernel definition
+__global__ void VecAdd(float* A, float* B, float* C)
+{
+    int i = threadIdx.x;
+    C[i] = A[i] + B[i];
+}
+
+int main()
+{
+    ...
+    // Kernel invocation with N threads
+    VecAdd<<<1, N>>>(A, B, C);
+    ...
+}
+\end{lstlisting}
+%
+This example corresponds to this simple Haskell function
+%
+\begin{lstlisting}
+vecAdd :: [Float] -> [Float] -> [Float]
+vecAdd = zipWith (+)
+\end{lstlisting}
+
+In general, it's fairly clear how trivially parallel programs, like those that just rely on @map@s and @zipWith@s, can be implemented in CUDA C. What is less clear however, is how to map other high-level combinators (for example @fold@ and @scan@) to a corresponding GPU kernel. In order to do such things, the programmer has to concern themselves with the hierarchy of the GPU. Kernels are executed by threads in SIMD groups called warps arranged in thread blocks. Different threads in the same block can coordinate by fast shared memory, whereas threads in different blocks can only coordinate via the, slower, global memory. To further complicate the programmer's task, there are also issues of SIMD divergence and memory access patterns. All of these must be taken into account to achieve optimal performance.
+
+% \paragraph{Dynamic parallelism}
+% A particular feature of the CUDA programming model that is worth noting is \emph{dynamic parallelism}~\cite[Appendix D]{cuda}. Dynamic parallelism in this case being the ability to create and launch new kernels from within one that is already running. While at first glance this may appear to provide nested parallelism, it is not without limitations. There is an upper limit on the nesting depth of 24 and each new level of nesting requires an extra 150MB of device memory. While this would be suitable for algorithms that had a small fixed depth of nested parallelism, it would not work at all for algorithms like the Barnes-Hut algorithm for n-body simulation \citep{barnes:1986}. Such algorithms require dynamic trees where the parallel nesting depth is equivalent to the depth of the tree.
+
+The difficulties of directly programming through the low-level CUDA framework is what inspired many languages, compilers, and frameworks that try to lift the level abstraction. One of those is the Accelerate language and compiler. It allows for data parallel programming through collective array operations. We explore it in depth in Section~\ref{sec:background-accelerate}.
+
+\section{The Nested Data Parallel Programming Model}
+\label{sec:ndp}
+
+The programming model of Nested Data Parallelism (NDP) is the most general form of data parallelism. It allows for arbitrary nesting of parallel operations within other parallel operations, as well as allowing parallel structures to contain other parallel structures. To put it simply, vectors of vectors, or arrays of arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
+
+Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in a number of different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. In all of these language this model of programming is achieved via a program transformation first described by \citet{Blelloch:compiling1988}. At the time, it was key to executing NDP programs on the SIMD hardware of the time (vector computers). Simply put, it transforms programs such that they no longer contain nested parallel structures or nested parallel operations.
+
+% This first description of what shall now be referred to as Blelloch's Transform transformed from \plisp \citep{Sabot:paralation}, a version of lisp with simple parallel collections, to Scan-Vector Lisp, a subset of common lisp with a vector type. However, it was only possible to apply it to a subset of the source language and only to simple primitive types. Subsequently Scan-Vector Lisp was replaced with the intermediate language \vcode \citep{Blelloch:vcode1990}, a stack based data-parallel language.
+
+Blelloch's Transform works by having two distinct components. The first being a \emph{flattened array representation}, the second program \emph{vectorisation}. We will address each of these in turn.
+
+\subsection{Array representation}
+\label{sec:background-representation}
+
+Computing with nested arrays requires a means for representing the nested structure in the flat memory provided by the von Neumann model.
+
+To give a simple example, suppose we have this nested array.
+%
+\begin{lstlisting}
+{ {A,B,C}, {D,E}, {F,G,H,I}, {}, {J} }
+\end{lstlisting}
+%
+It is an array of arrays. The immediately obvious way of representing this is to have an array of pointers. Indeed, most contemporary languages represent nested arrays in this way. Note that this is distinct from multidimensional arrays. While one can treat, say, a 2D array as an array of arrays, the fact that each \emph{subarray} has to be the same length does not make it a true nested array structure.
+
+So if an array of pointers allows us to represent arbitrary nested array structures, what is the problem? It lies in the fact that modern computer hardware is optimised for locality of reference. Having different (often small) parts of the structure spread over memory with pointers between them means that any operations performed over them has to constantly chase pointers and access new areas of memory. This results in many cache misses and is unworkable in the context of high performance. In addition, allocating pointer-based structures involves numerous small allocations. This means construction and destruction is expensive, and, in the context of a garbage collector, longer GC pauses.
+
+Another solution to this problem is to \emph{flatten} the array structure. This is what \citet{Blelloch:compiling1988} proposes. An array is split into a pair consisting of an array of \emph{segment descriptors} and an array of values. The example above is represented as:
+%
+\begin{lstlisting}
+({3,2,4,0,1}, {A,B,C,D,E,F,G,H,I,J})
+\end{lstlisting}
+%
+The segment descriptors in the \emph{segments} array hold the size of corresponding subarray. So, we know that the first subarray contains the first 3 elements of the values vector, the next subarray 2, the next 4, etc.
+
+Further nesting levels can then be represented by adding additional segment descriptors. For example:
+%
+\begin{lstlisting}
+{ { {A,B}, {C} },
+  { {D,E}, {}, {F} } }
+\end{lstlisting}
+%
+becomes,
+%
+\begin{lstlisting}
+({2,3}, ({2,1,2,0,1}, {A,B,C,D,E,F}))
+\end{lstlisting}
+
+% In addition to flattening nested arrays, arrays of tuples can be represented by tuples of arrays. This gives the the same benefits of locality as nested array flattening.
+
+The segment descriptors we have in both of these examples are what we will refer to as \emph{size segment descriptors}, as they hold the size of subarrays. However, they are somewhat limited. Many operations with arrays in this form have worse complexity than the pointer-based equivalent. In particular, indexing, one of the most basic array operations, is no longer constant time. For example, finding the element at index 3 of the subarray at index 2 of
+%
+\begin{lstlisting}
+({3,2,4,0,1}, {A,B,C,D,E,F,G,H,I,J})
+\end{lstlisting}
+%
+involves taking the size of all subarrays before the one at index 2 and adding them together. In this case that's $3+2=5$. Then we have to add on 3 to that, $5+3=8$. This gives us the index of @I@, which is what we want. In general, size segment descriptors require at $O(n)$ (where $n$ is the number of subarrays) work to perform indexing.
+
+There is another form of segment descriptor that solves this problem. Instead of holding the size of each subarray, it holds the offset. So, for our first example,
+%
+\begin{lstlisting}
+({0,3,5,9,9}, {A,B,C,D,E,F,G,H,I,J})
+\end{lstlisting}
+%
+We will call these \emph{offset segment descriptors}. In general, it takes $O(1)$ work to index arrays in this form as we already know where the corresponding subarray is located in the values vector.
+
+Another useful operation, calculating the size of a given subarray, is similarly constant time. Simply take the offset of the subarray and subtract from the offset of the next subarray. However, this does not work for the final subarray and requires accessing two different elements of the segments array, which can be a problem for fusion (more on that in Chapter~\ref{chap:implementation}).
+
+Instead, the better choice is \emph{size-offset segment descriptors} where both the size and the offset are stored.
+%
+\begin{lstlisting}
+({(3,0),(2,3),(4,5),(0,9),(1,9)}, {A,B,C,D,E,F,G,H,I,J})
+\end{lstlisting}
+%
+This has the advantages of both representations, but does require twice as much memory to store the segment descriptors.
+
+% The former can be translated into the latter by simply applying @scanl (+)@ to the segment descriptor.
+
+It is worth noting that there are other, more complex, nested array representations in existence. In particular \citet{Lippmeier:replicate} describe one that introduces the concept of \emph{virtual segments}. They allow for arrays to be replicated without explicitly storing them more than once. This problem arises when trying to support higher-order nested parallelism, when arrays are able to store functions as values. In the context of this work, we don't support higher order nested parallelism, so we won't explore it in detail.
+
+\subsection{Flattening}
+
+Flattening, or vectorisation, is a syntax driven program transformation. When given a program as input it outputs a program semantically equivalent, but directly operating on a flattened array representation, and without any nested parallelism.
+
+As an example, consider this simple program.
+%
+\begin{lstlisting}
+foo xs = map (map (\x -> 2*x + 1)) xs
+\end{lstlisting}
+%
+If we wanted to rewrite this by hand, such that it didn't rely on a nested @map@ and explicitly worked with one of the nested array representation described above, we would most likely end up with this.
+%
+\begin{lstlisting}
+foo' xs = let (segs, vals) = xs
+          in (segs, map (\x -> 2*x + 1) vals)
+\end{lstlisting}
+%
+In this case, we're simply mapping $2x+1$ over the all the values in the nested array. It is trivial to see that @foo@ and @foo'@ are equivalent. Blelloch's flattening transformation is a method for producing these equivalent programs. It works by \emph{lifting} functions into vector space. That is, given some function
+%
+\begin{lstlisting}
+f :: a -> b
+\end{lstlisting}
+%
+it lifts it into the function
+%
+\begin{lstlisting}
+f%$^\uparrow$% :: Vector a -> Vector b
+\end{lstlisting}
+%
+operating over vectors. Of course if @a@ or @b@ are already vectors~\footnote{In these examples, we're treating vectors and arrays as being the same thing. For now that is acceptable, but we will refine our definitions of both of these things in the following section.} then this function will be working over the nested representation of the now nested vectors.
+
+Going back to our example, if we will start by lifting the lambda term
+%
+\begin{lstlisting}[style=ndp]
+Lift[|\x -> 2*x + 1|]
+\end{lstlisting}
+%
+For a function, we need to remember the length of the vector it should return. For all lifted functions, the length of the result should be the same as length of the argument. So we keep track of the argument as part of the \emph{lifting context}.
+%
+\begin{lstlisting}[style=ndp]
+\x -> Lift_x[|2*x + 1|]
+\end{lstlisting}
+%
+We can then use lifted version of the binary operation @+@. We will call this @+@$^\uparrow$.
+%
+\begin{lstlisting}[style=ndp]
+\x -> Lift_x[|2*x|] +%$^\uparrow$% Lift_x[|1|]
+\end{lstlisting}
+%
+For constants, we have to @replicate@ that constant out over a new vector. So for @1@ and @2@, we replicate it out by the length of the lifting context.
+%
+\begin{lstlisting}[style=ndp]
+\x -> replicate (length x) 2 *%$^\uparrow$% Lift_x[|x|] +%$^\uparrow$% replicate (length x) 1
+\end{lstlisting}
+%
+All that leaves us with is lifting the variable @x@. In this case, no extra work needs to be done. We just leave it as @x@ as it refers to the vector bound as argument to in the lambda term\footnote{In general this is not always true. See Chapter~\ref{chap:theory} for an in-depth explanation of how variables are treated during the lifting process.}.
+%
+\begin{lstlisting}[style=ndp]
+\x -> replicate (length x) 2 *%$^\uparrow$% x +%$^\uparrow$% replicate (length x) 1
+\end{lstlisting}
+%
+This is now the lifted version of our lambda term. Going back to the complete function.
+%
+\begin{lstlisting}
+foo xs = map (map (\x -> 2*x + 1)) xs
+\end{lstlisting}
+%
+We want to use lifting to remove the nested @map@. We can do that by first lifting the inner @map@ into application of the lifted function.
+%
+\begin{lstlisting}
+Lift[|map (\x -> 2*x + 1)|]
+\end{lstlisting}
+%
+Because we're now lifting a term that is already a vector, we are lifting into the nested array representation.
+%
+\begin{lstlisting}[style=ndp]
+\(segs, vals) -> (segs, Lift[|\x -> 2*x + 1|] vals)
+\end{lstlisting}
+%
+Essentially, we are able to replace a @map@ with the application of the lifted version of its first argument to the values of its second. More generally, the \emph{lifting rule} for @map@ is
+%
+\begin{lstlisting}[style=ndp]
+Lift[|map f|] = \(segs, vals) -> (segs, Lift[|f|] vals)
+\end{lstlisting}
+%
+Continuing on with our example, we can substitute the result of \lstinline[style=ndp]{Lift[|\x -> 2*x + 1|]} into the lifted version of the inner @map@.
+%
+\begin{lstlisting}
+\(segs, vals) -> (segs, (\x -> replicate (length x) 2 *%$^\uparrow$% x +%$^\uparrow$% replicate (length x) 1) vals)
+\end{lstlisting}
+%
+For the outer @map@, we could perform much the same thing, if we wanted a lifted version of @foo@, but if we instead just want @foo@ to be \emph{flattened} then we can replace it with the function above. More generally, this equivalence will always hold
+%
+\begin{lstlisting}[style=ndp]
+map f = Lift[|f|]
+\end{lstlisting}
+%
+Using it we can rewrite programs with nested @map@s to remove any nesting.
+
+A similar approach can be taken for other array combinators. All that is required is to have a version of that combinator that can operate over the segmented representation. However, this is problematic for @fold@s. If we want a  parallel @fold@ that assumes its first argument is associative, what does its lifting rule look like?
+%
+\begin{lstlisting}[style=ndp]
+Lift[|fold f z arr|] = fold_seg f z Lift[|arr|]
+\end{lstlisting}
+%
+For this combinator, we do not lift the @f@ or @z@ arguments. What this means is that they cannot contain any nested parallelism. This is a common restriction on NDP languages.
+
+The combinator @fold_seg@ is a necessary one to support @fold@ in NDP languages. It performs a \emph{segmented} fold. It can be thought of as performing a fold for every subvector of a vector of vectors.
+%
+\begin{lstlisting}[style=ndp]
+fold_seg :: (a -> a -> a)
+         -> a
+         -> (Vector (Int,Int), Vector a)
+         -> Vector a
+\end{lstlisting}
+%
+
+In Chapter~\ref{chap:theory} we will describe a more general form of flattening and formally specify these operations.
+%
+
+\subsection{Avoidance}
+\label{sec:advancements}
+
+% Following the discovery of the flattening transform, \citet{Blelloch:nesl1995} devised the language \nesl in order to offer a language simpler than \plisp. \plisp was an extension to Common Lisp and as such had semantics that were difficult to translate to parallel execution. Similarly to \plisp, \nesl used \vcode as the intermediate language to generate in its vectorisation process. This represented the first step toward a more complete NDP language.
+
+% While we have covered the basic concepts of Blelloch's lifting transform and program flattening, it is worth taking note of a few of its limitations and the extensions that help overcome them.
+
+% Firstly, other than arrays, we did not explore what other data types can be supported. In this work, we are primarily concerned with arrays and product types. But other work~\cite{Keller:trees,Chakravarty:more-types} demonstrates that support for sum types and recursive types is also possible. These require changes to the nested array representation.
+
+% Supposing we had an array of sum types
+% %
+% \begin{lstlisting}
+% {%$\alpha$% + %$\beta$%}
+% \end{lstlisting}
+% %
+% One possible representation is two arrays of values and an array of boolean flags called the \emph{selector}.
+% %
+% \begin{lstlisting}
+% {Bool} %$\times$% {%$\alpha$%} %$\times$% {%$\beta$%}
+% \end{lstlisting}
+% %
+% A false in the selector array means that value should come from the left value array; a true, from the right value array.
+
+% Firstly, in the context of functional languages, a question that naturally arises is how well this technique works for higher-order functions? Both in sense of flattening programs containing them but also allowing arrays of functions. This is Higher-Order NDP~\cite{Leshchinskiy:higher}. The techniques that allow for this, in particular, closure conversion~\cite{Minamide:1996}, we will not explore in detail as we do not do this work in the context of a higher-order functional language. We are strictly concerned with first-order array programs.
+
+One extension to flattening which is important to our work is \emph{vectorisation avoidance}, avoiding vectorisation where necessary. For example, in this simple function from above,
+%
+\begin{lstlisting}
+foo xs = map (map (\x -> 2*x + 1)) xs
+\end{lstlisting}
+%
+flattening resulted in
+%
+%
+\begin{lstlisting}
+\(segs, vals) -> (segs, (\x -> replicate (length x) 2 *%$^\uparrow$% x +%$^\uparrow$% replicate (length x) 1) vals)
+\end{lstlisting}
+%
+Doing so results in many intermediate arrays. If vectorisation can be avoided for the term
+%
+\begin{lstlisting}
+\x -> 2*x + 1
+\end{lstlisting}
+%
+then it is not necessary to construct all the intermediate arrays. \citet{Keller:avoidance} describe a way of avoiding vectorisation by having a pre-vectorisation tagging phase tagging sub-computations that do not need to be vectorised. In Chapter~\ref{chap:theory} we will describe a different solution to vectorisation avoidance, but one that could be improved by taking ideas from \citet{Keller:avoidance}.
 
 \section{Accelerate}
 \label{sec:background-accelerate}
-\TODO{Revise for flow with other sections}
 
-\emph{Accelerate} is a parallel array language consisting of a carefully
-selected set of operations on multidimensional arrays, which can be compiled
-efficiently to bulk-parallel SIMD hardware. Accelerate is \emph{deeply embedded}
-in Haskell, meaning that we write Accelerate programs with (slightly stylised)
-Haskell syntax. Accelerate code embedded in Haskell is not compiled to SIMD code
-by the Haskell compiler; instead, the Accelerate library includes a
-\emph{runtime compiler} that generates parallel SIMD code at application
-runtime.
-The collective operations in Accelerate are based on the scan-vector
-model~\citep{Chatterjee:1990vj,Sengupta:2007tc}, and consist of multi-dimensional
-variants of familiar Haskell list operations such as @map@ and @fold@, as well
-as array-specific operations such as index permutations.
-For example, recall our dot-product program:
+As part of our work, we extend the array language \emph{Accelerate}. What follows is an overview of Accelerate from the perspective of a user of the language: how to write programs, how they are executed, what its limitations are, etc. In the subsequent section (\ref{sec:acc-internals}) we will explore some of the internal design of the compiler.
+
+\subsection{Introduction}
+\label{sec:acc-intro}
+
+Accelerate is a parallel array language consisting of a carefully selected set of operations (combinators) on multidimensional arrays, which can be compiled efficiently to bulk-parallel SIMD hardware. It is \emph{deeply embedded} in Haskell, meaning that we write Accelerate programs with (slightly stylised) Haskell syntax.
+
+Accelerate code embedded in Haskell is not compiled to SIMD code by the Haskell compiler; instead, the Accelerate library includes a \emph{runtime compiler} that generates parallel SIMD code at application runtime. Currently, there are two complete code-generation backends, one for multi-core CPUs and one for Nvidia GPUs. Both are able to share a significant code base owing to the fact they both work via LLVM.
+
+The collective operations in Accelerate are based on the scan-vector model~\citep{Chatterjee:1990vj,Sengupta:2007tc}, and consist of multi-dimensional variants of familiar Haskell list operations such as @map@ and @fold@, as well as array-specific operations such as index permutations.
+
+For example, this is a simple vector dot-product function written in Accelerate:
 %
 \begin{lstlisting}
 dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
 dotp xs ys = fold (+) 0 ( zipWith (*) xs ys )
 \end{lstlisting}
 %
-The function @dotp@ consumes two Accelerate computations, each of which produces
-one-dimensional arrays (@Vector@) of @Float@ when evaluated, and it returns a
-computation which, when evaluated, yields a single (@Scalar@) result
-as output. The type @Acc@ indicates that the inputs and outputs to
-this function are embedded Accelerate computations --- they are
-evaluated in the \emph{object} language of dynamically generated
-parallel code, rather than the \emph{meta} language, which is vanilla
-Haskell.
-The Accelerate code for @dotp@ is almost identical to what we would write in
-standard Haskell over lists, and is certainly more concise than an explicitly
-GPU-accelerated or SIMD-vectorized\footnote{That is, a program utilising the
-SSE/AVX instruction set extensions for x86 processors.} low-level dot-product,
-while still compiling to efficient
-code~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
+The function @dotp@ consumes two Accelerate computations. The type @Acc a@ can be interpreted to mean an Accelerate computation producing an @a@. So, in this case, each of the argument computations produce a one-dimensional array (@Vector@) of @Float@ when evaluated. This function then returns a new computation which, when evaluated, yields a single (@Scalar@) result as output.
 
-The functions @zipWith@ and @fold@ are defined by the Accelerate library and
-have \emph{highly parallel} semantics, supporting up to as many parallel threads as
-data elements. The type of @fold@ is:
+The Accelerate code for @dotp@ is almost identical to what we would write in standard Haskell over lists, and is certainly more concise than an explicitly GPU-accelerated or SIMD-vectorized\footnote{That is, a program utilising the SSE/AVX instruction set extensions for x86 processors.} low-level dot-product, while still compiling to efficient code~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
+
+The functions @zipWith@ and @fold@ are defined by the Accelerate library and have \emph{highly parallel} semantics, supporting up to as many parallel threads as data elements. The type of @fold@ is:
 %
 \begin{lstlisting}
 fold :: (Shape sh, Elt e)
@@ -54,101 +329,307 @@ fold :: (Shape sh, Elt e)
      -> Acc (Array sh e)
 \end{lstlisting}
 %
-The type classes @Shape@ and @Elt@ indicate that a type is admissible as an
-array shape and array element, respectively. Array shapes and indices are
-denoted by snoc-lists formed from @Z@ and @(:.)@ at both the type and value
-level, to define the dimensionality and extent of an array ---or the index of a
-particular element--- respectively~\citep{Keller:Repa,Chakravarty:acc-cuda}.
-Array elements can be signed and unsigned integers, floating point numbers,
-@Char@, @Bool@, shapes formed from @Z@ and @(:.)@, as well as nested tuples of
-all of these.
-
-The type signature for @fold@ also shows how Accelerate is stratified into
-collective \emph{array computations}, represented by terms of the type @Acc t@,
-and \emph{scalar expressions} @Exp t@. Values of type @Acc t@ and @Exp t@ do not
-execute computations directly, rather they represent abstract syntax trees (ASTs)
-constituting a computation that, once executed, will yield a value of type
-@t@. Collective operations comprise many scalar operations which are executed in
-data-parallel, but scalar operations \emph{can not} initiate collective
-operations. This stratification helps to statically exclude unbound nested,
-irregular parallelism, to enable efficient execution on constrained hardware
-such as GPUs, as discussed in previous
-work~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
-
-\subsection{Limitation \#1: Regular, flat data-parallelism}
-\label{sec:problem_1}
-
-A known limitation of flat data-parallel programming models is that they can
-inhibit modularity. For example, we might wish to lift our dot-product program
-to a matrix-vector product, by applying @dotp@ to each row of the input matrix:
+This definition exposes some other important components to the language. The type class @Shape@ indicates that a type is admissible as an array \emph{shape}. In the simple terms, this means that it must be one of 1D, 2D, 3D, etc. The valid members of the @Shape@ class are:
 %
 \begin{lstlisting}
-mvm%$_\texttt{ndp}$% :: Acc (Matrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
-mvm%$_\texttt{ndp}$% mat vec =
-  let Z :. m :. _ = shape mat
-  in  generate (Z:.m) (\row -> the $ dotp vec (slice mat (row :. All)))
+instance Shape Z
+instance Shape sh => sh :. Int
 \end{lstlisting}
 %
-Here, @generate@ creates a one-dimensional vector containing @m@ elements by
-applying the supplied function at each index in data-parallel. At each index, we
-extract the appropriate row of the matrix using @slice@,%
-\footnote{The \inl{slice} operation is a generalised array indexing function
-which is used to cut out \emph{entire dimensions} of an array. In this example,
-we extract \inl{All} columns at one specific \inl{row} of the given
-two-dimensional matrix, resulting in a one-dimensional vector.}
-and pass this to our existing @dotp@ function together with the input vector.
-Unfortunately, since both @generate@ and @dotp@ are data-parallel operations,
-this definition requires nested data-parallelism and is thus not permitted in flat data-parallelism.%
-\footnote{More specifically, the problem lies with the data-parallel operation
-\inl{slice} \emph{which depends on} the scalar argument \inl{row}. The clue that
-this definition includes nested data-parallelism is in the use of the function
-\inl{(the :: Acc (Scalar a) -> Exp a)}, effectively concealing that \inl{dotp}
-is a collective array computation in order to match the type expected by
-\inl{generate}, which is that of scalar expressions.}
-Consequently, we cannot reuse @dotp@ to implement matrix-vector multiplication; instead, we have to write it from scratch.
-
-Similarly, computations on irregular structures, such as sparse matrices, which are most naturally expressed in nested form, require an unwieldy encoding when we are restricted to only flat data-parallelism.
-
-% example NDP/MVM bugs:
-% https://github.com/AccelerateHS/accelerate/issues/63
-% https://github.com/AccelerateHS/accelerate/issues/135
-
-% \begin{lstlisting}
-% mvm%$_{rep}$% :: Acc (Matrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
-% mvm%$_{rep}$% mat vec =
-%    let Z :. m :. _ = shape mat
-%        vec'        = replicate (Z :. m :. All) vec
-%    in
-%    fold (+) 0 ( zipWith (*) mat vec' )
-% \end{lstlisting}
-
-% \tlm{possible reviewer complaint: do sequences solve this problem, or do you
-% just punt the problem one level up the hierarchy. Is it worth it / what is the
-% limitation of that? why not full NDP? cf. ndp2gpu paper from ICFP'12.}
+This allows for arbitrary rank shapes to be built at the type level as snoc-lists~\citep{Keller:Repa,Chakravarty:acc-cuda}. Accelerate defines some synonyms for common shapes:
 %
-% 1. NDP2GPU did not demonstrate anything we did not already know, namely both
-%    NESL and segmented/scans on GPUs have been well studied. Critically, it
-%    failed to show whether or not that combination on GPUs _makes sense_.
+\begin{lstlisting}
+type DIM0 = Z
+type DIM1 = DIM0:.Int
+type DIM2 = DIM1:.Int
+type DIM3 = DIM2:.Int
+type DIM4 = DIM3:.Int
+...
+\end{lstlisting}
 %
-% 2. NDP2GPU was never a usable system
+The shape @Z@ is the scalar shape. An array of shape @Z@ is called a scalar array and only has 1 element. This was the result type of @dotp@, via this synonym:
 %
-% 3. Our approach allows us to address an additional problem, namely that of
-%    memory usage, which is historically a massive problem for flattening-based
-%    approaches.
+\begin{lstlisting}
+type Scalar = Array Z
+\end{lstlisting}
+%
+Similarly, a vector is just a 1D array.
+%
+\begin{lstlisting}
+type Vector = Array DIM1
+\end{lstlisting}
+%
 
-\subsection{Limitation \#2: Memory usage}
-\label{sec:problem_2}
+Going back to @fold@, we also have the @Elt@ type class. This indicates that a type is admissible as an element of an array. It encompasses many primitive types including:
+%
+\begin{lstlisting}
+instance Elt Int
+instance Elt Float
+instance Elt Double
+instance Elt Char
+instance Elt Bool
+instance Elt Word8
+instance Elt Word16
+instance Elt Word32
+...
+\end{lstlisting}
+%
+In addition, tuples of arity up to 16 are admissible.
+%
+\begin{lstlisting}
+instance (Elt a, Elt b)               => Elt (a,b)
+instance (Elt a, Elt b, Elt c)        => Elt (a,b,c)
+instance (Elt a, Elt b, Elt c, Elt d) => Elt (a,b,c,d)
+...
+\end{lstlisting}
+%
+In fact, @Elt@ is user extensible via representation types. We won't cover how that works in detail here, but the salient point is that @Elt@ is a truly open type class.
 
-Collection-oriented array-based programming languages like Accelerate
-provide a convenient programming model for SIMD architectures, but are hampered by resource constraints, such as limited main memory. This is particularly problematic for compute
-accelerators such as GPUs, which have their own ---much
-smaller--- high-performance memory areas separate from the host's main memory.%
-\footnote{The current top-of-the-line NVIDIA Quadro GP100 has 16GB of on-board
-memory; much less than the amount of host memory one can expect in a
-workstation-class system this product is aimed at. Most other GPUs include significantly less memory.}
-As many collective array operations require random access to statically unspecified index ranges, arrays must generally be loaded into device memory in their entirety.
+The type signature for @fold@ also shows how Accelerate is stratified into two different levels. We've already seen collective \emph{array computations}, represented by terms of the type @Acc t@, but there is also \emph{scalar expressions}, represented by terms of type @Exp t@. More concretely, values of type @Acc t@ and @Exp t@ do not execute computations directly, rather they represent abstract syntax trees (ASTs) constituting a computation that, once executed, will yield a value of type @t@. Collective operations comprise many scalar operations which are executed in data-parallel, but scalar operations \emph{cannot} initiate collective operations. This stratification helps to statically exclude nested parallelism. We will explore in more detail what this restriction means for modularity in Chapter~\ref{chap:motivation}.
 
-Where algorithmically feasible, such devices require us to split the input into \emph{chunks}, which we stream onto, process, and stream off of the device one by one. As illustrated by the function @dotp@$\texttt{stream}$ in the introduction, this requires a form of nesting if we want to maintain code portability across architectures with varying resource limits, while still writing high-level, declarative code.
+\subsubsection{Operations}
+
+Accelerate offers a number of different array operations. We'll give a brief overview of the key ones here.
+
+@map@ and @zipWith@ behave in much the same way as those same operations over lists. For multidimensional arrays @zipWith@ yields an array of the minimum shape of all dimensions in the array. For example, if array @a@ has extent
+%
+\begin{lstlisting}
+Z :. 5 :. 4
+\end{lstlisting}
+%
+and array @b@ has extent
+%
+\begin{lstlisting}
+Z :. 3 :. 6
+\end{lstlisting}
+%
+then the result of
+%
+\begin{lstlisting}
+zipWith f a b
+\end{lstlisting}
+%
+Will have extent
+%
+\begin{lstlisting}
+Z :. 3 :. 4
+\end{lstlisting}
+%
+
+The @fold@ we used in @dotp@ works by folding along the inner dimension. One can view this as performing a series of many folds. Every vector along the inner dimension is reduced.
+
+@generate@ is the most general array operation.
+%
+\begin{lstlisting}
+generate :: (Shape sh, Elt e) => Exp sh -> (Exp sh -> Exp e) -> Array sh e
+\end{lstlisting}
+%
+It constructs an array of the given extent using the supplied function to fill its elements. For exammple:
+%
+\begin{lstlisting}
+evens :: Exp Int -> Acc (Vector Int)
+evens sz = generate (index1 sz) (\ix -> unindex ix * 2)
+\end{lstlisting}
+%
+This example also shows the scalar operations @index1@ and @unindex1@.
+%
+\begin{lstlisting}
+index1 :: Exp Int -> Exp DIM1
+index1 :: Exp DIM1 -> Exp Int
+\end{lstlisting}
+%
+They convert between @Int@s and @DIM1@s.
+
+Similarly, we have the operations @lift@ and @unlift@. They are generic functions for converting tuples in the meta-language to tuples in the object language, and vice versa. Expressing these functions in the Haskell type system is tricky, but one can think of them in this form.
+%
+\begin{lstlisting}[style=ndp]
+lift   :: (Exp e_1, Exp e_2, ..., Exp e_n) -> Exp (e_1, e_2, ..., e_n)
+unlift :: Exp (e_1, e_2, ..., e_n)         -> (Exp e_1, Exp e_2, ..., Exp e_n)
+\end{lstlisting}
+%
+
+Various different forms of prefix sum (scan) are supported. One of the main ones is, @scanl@, for performing a left scan.
+%
+\begin{lstlisting}
+scanl :: (Shape sh, Elt e)
+      => (Exp e -> Exp e -> Exp e)
+      -> Exp e
+      -> Acc (Array (sh:.Int) e)
+      -> Acc (Array (sh:.Int) e)
+\end{lstlisting}
+%
+It too is similar in semantics to @scanl@ in Haskell. Like @fold@, it assumes the binary operation is associative and works over the inner dimension.
+
+Other array and scalar operations we will introduce as the need arises.
+
+
+\subsection{Internals}
+\label{sec:acc-internals}
+
+The accelerate compilation pipeline has 4 major stages and uses two different syntax representations. The stages are:
+%
+\begin{itemize}
+%
+\item Sharing recovery -- Converts the higher order abstract syntax (HOAS) into first order syntax with De Bruijn indices and also recovers sharing.
+%
+% \item Segment rewriting -- If necessary, will rewrite explicit segment operations such that segment descriptors are converted into the right format. This will be covered in more depth below. For now, it is just another compilation stage.
+%
+\item Fusion and optimisation -- Tries to minimise unnecessary array traversals and optimises for optimal code generation. This produces an AST with explicit delayed arrays.
+%
+\item Code generation -- Generates LLVM IR from the AST and passes it off to the LLVM compiler. This stage is different for each backend. The CPU backend generates x86 binaries (with vector instructions) and the PTX backend generates PTX code for CUDA capable GPUs.
+%
+\item Execution -- Schedules and executes the computations on the target hardware.
+\end{itemize}
+%
+
+The first of these stages we won't explore in detail, as it is not a concern of this work. It is sufficient to understand it as the process that produces the first-order syntax in Listing~\ref{lst:acc-ast} from the programmer-friendly higher-order syntax. See \citet{McDonell:acc-optim} for details on how this stage of the pipeline works.
+
+The fusion and optimisation stage we will discuss in Chapter~\ref{chap:implementation} where we will build upon the previous work described in \citet{McDonell:acc-optim}.
+
+Code generation is not discussed in detail as it is not a focus of this work. See \citet{McDonell:2015:acc-llvm} for how LLVM is generated from th AST in Listing~\ref{lst:acc-ast}.
+
+Execution will be covered in Chapter~\ref{chap:implementation} where we build upon the previous work\cite{McDonell:acc-optim,McDonell:2015:acc-llvm,Chakravarty:acc-cuda}.
+
+\subsubsection{Abstract Syntax Tree}
+
+The abstract syntax tree for the core Accelerate syntax is given in \ref{lst:acc-ast} for the @Acc@ strata and \ref{lst:exp-ast} for the @Exp@ strata. These ASTs are all parameterised by the recursive step @acc@.
+
+\begin{aside}
+\begin{center}
+\textbf{Aside: Tying the recursive knot}
+\end{center}
+
+By having the recursive step as a parameter, rather than simply making a GADT recursive, we are able to annotate it differently in different contexts. For our AST, not only can we recover the recursion with @OpenAcc@
+%
+\begin{lstlisting}
+newtype OpenAcc aenv a = OpenAcc (PreOpenAcc OpenAcc aenv a)
+\end{lstlisting}
+%
+we are also able to, for example, annotate it with labels for user-debugging,
+%
+\begin{lstlisting}
+data LabelledAcc aenv a = LabelledAcc String (PreOpenAcc OpenAcc aenv a)
+\end{lstlisting}
+\end{aside}
+
+The second parameter is a snoc-list, represented using left-nested tuples, of the environment. The @Alet@ AST form allows for new variables to be introduced into the environment and @Avar@ extracts their values. @Idx@ is a typed De Bruijn index.
+%
+\begin{lstlisting}
+data Idx env a where
+  ZeroIdx :: Idx (env,a) a
+  SuccIdx :: Idx env a
+          -> Idx (env,b) a
+\end{lstlisting}
+%
+
+We can see the relation between the @Exp@ and @Acc@ stratas by looking at the definition of the @Generate@ constructor, and expanding the type synonyms within it
+%
+\begin{lstlisting}
+  Generate :: (Elt e, Shape sh)
+           => PreOpenExp acc aenv () sh
+           -> PreOpenFun acc aenv () (sh -> e)
+           -> PreOpenAcc acc aenv (Array sh e)
+\end{lstlisting}
+%
+we observe how both arguments are parameterised by the recursive @acc@ step and array environment but have closed scaler environments. We say that these term are open with respect to the array environment but closed with respect to the scalar environment.
+
+Tuples are represented with a snoc-list, like the environment.
+
+In the case of @Index@, we see how the recursive step can be embedded in @Exp@ terms. While the type system does not enforce this, for most stages of the compilation we have as an invariant that any @Acc@ term embedded in @Exp@ must be an @Avar@. This way, scalar computations can access arrays previously computed but cannot compute further array operations.
+
+
+\begin{lstlisting}[label=lst:acc-ast, caption={The first-order abstract syntax of the \texttt{Acc} level of Accelerate.}, style=haskell]
+type Acc = OpenAcc ()
+newtype OpenAcc aenv a = OpenAcc (PreOpenAcc OpenAcc aenv a)
+
+data PreOpenAcc acc aenv a where
+  Map      :: (Elt a, Elt b, Shape sh)
+           => PreFun     acc aenv (a -> b)
+           -> acc            aenv (Array sh a)
+           -> PreOpenAcc acc aenv (Array sh b)
+
+  ZipWith  :: (Elt a, Elt b, Elt c, Shape sh)
+           => PreFun     acc aenv (a -> b -> c)
+           -> acc            aenv (Array sh a)
+           -> acc            aenv (Array sh b)
+           -> PreOpenAcc acc aenv (Array sh c)
+
+  Generate :: (Elt e, Shape sh)
+           => PreExp     acc aenv sh
+           -> PreFun     acc aenv (sh -> e)
+           -> PreOpenAcc acc aenv (Array sh e)
+
+  Fold     :: (Elt a, Shape sh)
+           => PreFun     acc aenv (a -> a -> a)
+           -> acc            aenv (Array (sh:.Int) a)
+           -> acc            aenv (Array sh a)
+           -> PreOpenAcc acc aenv (Array sh a)
+
+  Avar     :: Arrays a
+           => Idx aenv a
+           -> acc aenv a
+
+  Alet     :: (Arrays a, Arrays b)
+           => acc            aenv     a
+           -> acc            (aenv,a) b
+           -> PreOpenAcc acc aenv     b
+
+  Atuple   :: Arrays t
+           => Atuple     acc aenv (TupleRepr t)
+           -> PreOpenAcc acc aenv t
+  ...
+\end{lstlisting}
+
+\begin{lstlisting}[label=lst:exp-ast, caption={The first-order abstract syntax of the \texttt{Exp} level of Accelerate.}]
+type Fun = OpenFun ()
+type PreFun acc = PreOpenFun acc ()
+type OpenFun = PreOpenFun OpenAcc
+
+data PreOpenFun acc env aenv f where
+  Body :: Elt b
+       => PreOpenExp acc env     aenv b
+
+  Lam  :: (Elt a, Elt b)
+       => PreOpenFun acc (env,a) aenv b
+       -> PreOpenFun acc env     aenv (a -> b)
+
+type Exp = OpenExp ()
+type PreExp acc = PreOpenExp acc ()
+type OpenExp = PreOpenExp OpenAcc
+
+data PreOpenExp acc env aenv e where
+  Index   :: (Shape sh, Elt e)
+          => acc                aenv (Array sh e)
+          -> PreOpenExp acc env aenv sh
+          -> PreOpenExp acc env aenv e
+
+  Let     :: (Elt a, Elt b)
+          => PreOpenExp acc env     aenv a
+          -> PreOpenExp acc (env,a) aenv b
+          -> PreOpenExp acc env     aenv b
+
+  Var     :: Elt e
+          => Idx env e
+          -> PreOpenExp env aenv e
+
+  Tuple   :: (Elt t, IsTuple t)
+          => Tuple      acc env aenv (TupleRepr t)
+          -> PreOpenExp acc env aenv t
+  ...
+
+data Tuple acc env aenv t where
+  NilTup  :: Tuple acc env aenv ()
+
+  SnocTup :: Elt a
+          => Tuple      acc env aenv t
+          -> PreOpenExp acc env aenv a
+          -> Tuple      acc env aenv (t,a)
+\end{lstlisting}
+%
+
+
+% \subsubsection{Simultaneous substitution}
+
 
 % How is this helping to motivate nesting in any way? -=chak
 %
@@ -161,3 +642,50 @@ Where algorithmically feasible, such devices require us to split the input into 
 % utility and further exacerbating the problem of running our programs on
 % memory-constrained devices.
 
+
+% \section{Other GPGPU Languages}
+
+% There are numerous languages other than Accelerate, both embedded and not, that are intended to provide easier ways of GPU programming. Here is an overview of a selection of them, chosen for having similar goals and features to Accelerate. A particular focus is on the degree of nested parallelism they provide.
+
+% \paragraph{Vertigo}
+% Vertigo \citep{Elliott:Vertigo} was an early purely functional Haskell-embedded language for 3D graphics with an optimising compiler for DirectX 9 capable GPUs. It was restricted to generating and shading shapes. While it did compile for the GPU, its restrictive problem domain makes it unsuitable for general purpose programming. However, it was the inspiration for subsequent Haskell-embedded GPGPU languages.
+
+% \paragraph{Nikola}
+% Nikola \citep{Mainland:nikola}, in its design, is the most similar to Accelerate of all these languages. Like Accelerate it compiles to CUDA C and features the standard collection of data-parallel combinators (@map@, @fold@, @zip@, etc.). However, it only supports constructs for which the size of the output array can be statically inferred. As such, it does not support @generate@ or @replicate@ and can only compile to a single kernel. If a user needs to perform a computation that requires multiple kernels they are left having to schedule this themselves.
+
+% \paragraph{Obsidian}
+% Based on the concept of connection patterns, Obsidian \citep{Claessen:obsidian,Claessen:obsidian-expressive} provides a GPGPU programming environment that aims to make GPU programming easier, without losing fine grain control of GPU resources. Again a Haskell-embedded language, it is based on the hardware design language Lava \citep{Bjesse:lava} and compiles to CUDA code. Unlike Accelerate, Obsidian is intended to offer a more low-level programming experience, with the programmer having direct control over things like memory layout and where parallelism is introduced. It bears more similarity to the hardware design language on which it is based than any data parallel language. While it is sufficiently powerful enough to allow for general purpose programming, it is still limited in the fact that functions in the language can only take one array as input, and one as output. Additionally, the size of an array is limited to maximum number of threads a CUDA thread block can legally contain (1024 for the latest CUDA-capable hardware). Like Nikola above, it can also only compile to a single CUDA kernel.
+
+% \paragraph{Copperhead}
+% Unlike the three languages above, Copperhead \citep{Catanzaro:copperhead} is embedded in Python. Like Accelerate and Nikola, it is implemented as a data parallel language with constructs like @map@, @reduce@ and @zip@. Unlike Accelerate however, it does support a degree of nested data-parallelism. This is achieved not through a flattening or vectorisation transform like the languages of \nesl \citep{Blelloch:nesl1995} and Data Parallel Haskell \citep{Jones:2008uu} (see \ref{sec:ndp} below), but by statically mapping nested programs onto the parallel hierarchy. As such the programmer has to be specify how they want nested parallel subcomputations to be mapped. The default is to simply replace them with a sequential implementation.
+
+% \paragraph{NDP2GPU}
+% NDP2GPU, described by \citet{bergstrom:ndp2gpu}, compiles \nesl \citep{Blelloch:nesl1995}  down to CUDA. The frontend of \nesl supports complete nested data parallelism, which allows the compilation of NDP programs for the GPU. This is in contrast to all the languages above. However, as the authors note, its performance is still distinctly below that of hand-written CUDA code. In addition, unlike Accelerate, only a basic form of @map@/@map@ fusion is supported.
+
+% \paragraph{CuNesl}
+% CuNesl \citep{Zhang:2012jl} is another compiler for compiling \nesl to CUDA C. It is distinct from NDP2GPU in that it supports a transformation for eliminating recursive function calls by converting them to while-loops; recursive functions being costly to execute on GPUs. While it does support eliminating more than just simple tail-recursion, it still does not eliminate all recursive calls; i.e. it can only work on recursive functions of the form shown in \ref{lst:cunesl-example} and functions that can be trivially transformed into this form. This is in contrast to all the other languages listed in this section as they either do not support recursive functions at all, in the case of Haskell-embedded languages, or simply do not support efficient execution of them, as is the case with Copperhead and NDP2GPU.
+
+% \begin{lstlisting}[label=lst:cunesl-example, caption={The general form of a recursive function that can be transformed by CuNesl. P1..P4 are blocks that do not contain recursive calls.}]
+% void fun(...) {
+%   P1()
+%   if (branch) {
+%     P2();
+%     return;
+%   } else {
+%     P3();
+%     fun(...);
+%     ...
+%     P4();
+%     return;
+%   }
+% }
+% \end{lstlisting}
+
+% While it may seem highly restrictive that Accelerate and the other embedded languages do not support recursive functions, the very fact that they are embedded allows for meta-programming. Recursive functions can be replaced by functions in the host language that generate the --- typically very large --- unfolded version of the function in the object language.
+
+% \paragraph{Barracuda}
+% Barracuda \citep{Larsen:baracuda} is another language embedded within Haskell. It is, however, more primitive than Obsidian, Nikola and Accelerate, as it only features the most basic array primitives. The fact it lacks a @scan@ primitive means it cannot implement a lot of real-world data-parallel algorithms \citep{Blelloch:1990vl}. It is also distinct from these other languages because it is intended for offline compilation and inclusion in high performance C++ applications. It does not provide any mechanism for runtime code generation and compilation. This neatly side steps the issues of overhead faced by these languages.
+
+% While the distinction between libraries and languages is not always clear (in the case of embedded languages at least), the above list focuses on languages for GPU programming. There are numerous libraries that can take advantage of the increased performance of running code on the GPU. Thrust \citep{Bell:thrust} is a parallel algorithms library designed to resemble the C++ Standard Template Library (STL). \citet{Sato:Skeletal-fusion} demonstrated a skeletal parallel programming framework for writing GPGPU applications. Like Accelerate, it features a fusion mechanism.
+
+% \TODO{Go through some more C++ libraries. Doesn't need a lot of detail.}
