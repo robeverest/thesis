@@ -78,7 +78,7 @@
     % basicstyle=\footnotesize\ttfamily,
     % basicstyle=\scriptsize\ttfamily,
     numberstyle=\color{Gray}\tiny\it,
-    commentstyle=\color{MidnightBlue}\it,
+    commentstyle=\color{MidnightBlue}\itshape,
     stringstyle=\color{Maroon},
     keywordstyle=[1],
     keywordstyle=[2]\color{ForestGreen},
@@ -98,8 +98,9 @@
     language=Haskell,
     upquote=true,
     deletekeywords={case,class,data,default,deriving,do,in,instance,let,of,type,where,newtype},
-    morekeywords={[2]class,data,default,deriving,family,instance,newtype,type,where,prj},
+    morekeywords={[2]class,data,default,deriving,family,instance,newtype,type,where},
     morekeywords={[3]in,let,case,of,do},
+    morecomment=[s][\color{Orange}]{`}{`},
     literate=
         {\\}{{$\uplambda$}}1
         {\\\\}{{\char`\\\char`\\}}1
@@ -129,7 +130,7 @@
     keywordstyle=[2],
     keywordstyle=[3],
     keywordstyle=[4],
-    commentstyle=\it,
+    commentstyle=\itshape,
     literate=
         {\\}{{$\lambda$}}1
         {\\\\}{{\char`\\\char`\\}}1

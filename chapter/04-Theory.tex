@@ -670,7 +670,7 @@ average%$_{\textit{avoid}}$% :: Array sh Int -> Array sh Int -> Array sh Int
 average%$_{\textit{avoid}}$% xs ys = zipWith (\x y -> (x + y) / 2) xs ys
 \end{lstlisting}
 
-The concrete flattening transformation presented in the rest of this section avoids the flattening of subexpressions not used in a nested context or containing nesting and preserves regularity, where vectorisation is over a regular domain.
+The concrete flattening transformation presented in the rest of this section avoids the flattening of subexpressions not used in a nested context or containing nesting and preserves regularity, where flattening is over a regular domain.
 
 % %
 % % With this intuition, we can see that we have some freedom in how exactly we
@@ -967,7 +967,7 @@ The concrete flattening transformation presented in the rest of this section avo
 
 While type information is not necessary to perform a flattening transformation, if we wish to describe it in such a way that it is type \emph{preserving} we have to be mindful of what is happening at the type level. Here, we discuss the type transformations $\mathcal{N}$ and $\mathcal{F}$. In the next section we will show how the term transformation $\mathcal{L}$ matches up to $\mathcal{N}$ and $\mathcal{F}$.
 
-Previous work on flattening~\cite{Chakravarty:more-types} describes the type level component as a simple function. However, in this work, some types have more than one possible flattened representation. Regular versus irregular flattening contexts give us a choice between different representations, the exact type of a (sub)term after flattening will not be known till after that (sub)term has been traversed. For this reason, we will represent our type level transformation relationally.
+Previous work on flattening~\cite{Chakravarty:more-types} describes the type level component as a simple function. However, in this work, some types have more than one possible flattened representation. Having both regular and irregular flattening contexts give us a choice between different representations, the exact type of a term after flattening will not be known till after that term has been traversed. For this reason, we will represent our type level transformation relationally.
 
 To aid in explanation, we will use something similar to Haskell's generalised algebraic data types (GADTs)~\citep{Jones:2006eh} both to describe the type level relations and also to track information in the term level transformation. This advantage of this it allows us to bring type equivalencies into the environment by simply matching on constructors. It also has the added benefit of more closely matching the concrete implementation in Accelerate.
 
@@ -987,14 +987,14 @@ data Norm t t' where
 Before we begin describing this fundamentally simple relation, it is first necessary to discuss an unusual feature of the meta language we use for describing the transform. For the most part, one can view the meta-language as being Haskell. This matches the implementation in Accelerate and leads to understandable definition, for a reader already familiar with Haskell. However, to further aid explanation, we allow for the meta language to generalise over tuples. We use the $(...)$ notation to capture the fact that something can take an arbitrary n-tuple. Suppose we have a function like
 %
 \begin{lstlisting}
-foo :: (Array sh_1 e_1, Array sh_2, ... Array sh_n e_n) -> r
+foo :: (Array sh_1 e_1, Array sh_2 e_2, ... Array sh_n e_n) -> r
 \end{lstlisting}
 %
-it is able to take any tuple value as argument; e.g. both @(Array sh e, Array sh' e')@ and @(Array sh e, Array sh' e', Array sh''' e''')@ would be considered valid argument types. In additional, we treat one-tuples as being equivalent to a single value. So @Array sh e@ would be a valid argument as well. While it is possible to write tuple-arity polymorphic functions in Haskell, with representation types or more generally generic programming libraries, doing so require significant extra type level programming that has a tendency to permeate throughout the code, even in the parts where it is not relevant. We opt not to do this in this work as it what we describe already has a complex type level component and this extra complication would only obscure the relative simplicity of what is happening. By just assuming our meta language lets us generalise over tuples and single values we sidestep the issue, leaving it to be explored in Chapter~\ref{chap:implementation}.
+it is able to take any tuple value as argument; e.g. both @(Array sh1 e1, Array sh2 e2)@ and @(Array sh1 e1, Array sh2 e2, Array sh3 e3)@ would be considered valid argument types. In addition, we treat one-tuples as being equivalent to a single value. So @Array sh e@ would be a valid argument as well. While it is possible to write tuple-arity polymorphic functions in Haskell, with representation types or generic programming libraries, doing so require significant extra type level programming that has a tendency to permeate throughout the code, even in the parts where it is not relevant. We opt not to do this in this work as it what we describe already has a complex type level component and it would only obscure the relative simplicity of what is happening. By assuming our meta language lets us generalise over tuples and single values we sidestep the issue, leaving it to be explored in Chapter~\ref{chap:implementation}.
 
-Going back to the relation, we will first look at the @Scalar@ constructor. It simply specifiees that scalars of type @e@ are wrapped in a zero dimension array of type @Array Z e@, keeping in mind that our definition of scalar values includes tuples of scalars.
+Going back to the relation, we will first look at the @Scalar@ constructor. It specifies that scalars of type @e@ are wrapped in a zero dimension array of type @Array Z e@, keeping in mind that our definition of scalar values includes tuples of scalars.
 
-The @Nest@ constructor captures how a regular $n$-dimensional array of regular $m$-dimensional arrays becomes an $n+m$-dimensional array. Or, to put it in terms of array shapes, an array of shape @sh@ of arrays of shape @sh'@ becomes an array of shape \lstinline[style=ndp]{sh++sh'}.
+The @Nest@ constructor captures how a regular $n$-dimensional array of regular $m$-dimensional arrays becomes an $n+m$-dimensional array. Or, to put it in terms of shapes, an array of shape @sh@ containing arrays of shape @sh'@ becomes an array of shape \lstinline[style=ndp]{sh++sh'}.
 For example, vectors of vectors of @Int@s, after expanding synonyms, has the type:
 %
 \begin{lstlisting}[style=ndp]
@@ -1037,12 +1037,12 @@ Vect ctx t t_flat
 %
 witnesses that @t@$^{\textit{flat}}$ can be also be represented as an array of shape @ctx@ containing values of type @t@. The difference between the two representations being that @t@$^{\textit{flat}}$ does not contain any explicit non-scalar nesting. It is important to note that the two types are not actually isomorphic. While it is possible to convert from values of @t@$^{\textit{flat}}$ to @Array ctx t@, the reverse direction is not always possible. That is because \lstinline[style=ndp]{Vect} also captures information about regularity and avoidance.
 
-This desire to capture the regularity makes this transform ambiguous. This is why it is necessary to treat the whole transformation as relation. If the enclosing data-parallel context is regular, we simply increase the dimensionality of all arrays in @t@$^{\textit{norm}}$ by @ctx@. However, if the context is irregular, we need to introduce segment descriptors as discussed in the previous section. These two cases are covered by the alternatives @Regular@ and @Irregular@ below:
+This desire to capture the regularity makes this transform ambiguous. This is why it is necessary to treat the whole transformation as relation. If the enclosing data-parallel context is regular, we simply increase the dimensionality of all arrays in @t@$^{\textit{norm}}$ by @ctx@. However, if the context is irregular, we need to introduce segment descriptors, as discussed in the previous section. These two cases are covered by the alternatives @Regular@ and @Irregular@ below:
 %
 \begin{lstlisting}[style=ndp]
 data Vect ctx t t_flat where
   Avoid_S    :: IsScalar t
-            => Vect ctx t t                                              -- avoid vectorisation
+            => Vect ctx t t                                              -- avoid flattening
   Avoid_A    :: IsScalar e
             => Vect ctx (Array sh e) (Array sh e)
   Regular   :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)   -- regular context
@@ -1067,9 +1067,9 @@ foo xs = ( generate (Z:.10) (\_ -> xs)
          , map (\x -> generate (Z:.x) (_ -> x)) xs)
 \end{lstlisting}
 %
-What is happening in this example is we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it being the same length of @xs@ (because they are @xs@). Because each sub-vector is the same length it is regular and thus can use a regular representation after vectorisation. The second component of the pair is of the same length as @xs@, but with each sub-vector having its length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
+What is happening here is we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it being the same length of @xs@ (because they are @xs@). Because each sub-vector is the same length it is regular and thus can use a regular representation after flattening. The second component of the pair is of the same length as @xs@, but with each sub-vector having its length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
 
-To further underpin this, consider how functions are often used in functional programs. A programmer would expect
+To further underpin this, consider how tuples are often used in functional programs. A programmer would expect
 %
 \begin{lstlisting}[style=ndp]
 bar = let a = A
@@ -1080,8 +1080,8 @@ bar = let a = A
 to be the same as
 %
 \begin{lstlisting}[style=ndp]
-bar = let (a,b) = (A, B)
-      in C
+bar' = let (a,b) = (A, B)
+       in C
 \end{lstlisting}
 %
 Assuming that B does not depend on A (or vice versa), it would be undesirable for the simple introduction of a tuple to group related bindings to introduce substantial performance changes. Similarly, \emph{currying} or \emph{uncurrying} functions should not alter their performance characteristics.
@@ -1144,11 +1144,11 @@ data Env ctx Gamma Gamma_flat where
   (:)   :: Vect t t_flat                      -- standard free variable
         -> Env ctx Gamma Gamma_flat
         -> Env ctx (t : Gamma) (t_flat : Gamma_flat)
-  (:_R)  :: Shape sh                      -- regular flattening context
+  (:_R)  :: Shape sh                       -- regular flattening context
         => Expr Gamma_flat sh
         -> Env ctx Gamma Gamma_flat
         -> Env (ctx++sh) Gamma Gamma_flat
-  (:_Ir) :: Shape sh                      -- irregular flattening context
+  (:_Ir) :: Shape sh                       -- irregular flattening context
         -> Expr Gamma_flat (Segments sh)
         -> Env ctx Gamma Gamma_flat
         -> Env (ctx++sh) Gamma Gamma_flat
@@ -1170,16 +1170,13 @@ var (sh :_R env  )  v    | (r, e) <- var env v        -- Gone past a level of re
 var (segs :_Ir env) v    | (r, e) <- var env v        -- Gone past a level of irregular nesting
                         = replicate_Ir r segs e
 
--- Add new fresh variable
-weaken :: Expr Gamma t -> Expr (a : Gamma) t
-
 -- Replication under a regular context
 replicate_R  :: Vect ctx t t_flat
             -> Expr Gamma sh
             -> Expr Gamma t_flat
             -> (exists t'_flat. (Vect (ctx++sh) t t'_flat, Expr Gamma t'_flat))
-replicate_R Avoid_S          _  t = (Avoid_S, t)
-replicate_R Avoid_A          _  t = (Avoid_A, t)
+replicate_R Avoid_S           _  t = (Avoid_S, t)
+replicate_R Avoid_A           _  t = (Avoid_A, t)
 replicate_R (Regular r)      sh t = (Regular r, replicate%$_{R->R}$% r sh t)
 replicate_R (Irregular r)    sh t = (Irregular r, replicate%$_{Ir->R}$% r sh t)
 replicate_R (Tuple (r_1,..))  sh t | (r'_1, t_1) <- replicate_R r_0 sh (prj 1 t)
@@ -1192,6 +1189,7 @@ replicate%$_{R->R}$% :: Expr Gamma sh
              %$\;$%-> Expr Gamma (Array (ctx++sh++sh_1) e_1, ...)
 replicate%$_{R->R}$% sh arr = ( generate (inside sh' (extent (prj 1 arr))) (\ix -> prj 1 arr ! outside ix)
                        , ...)
+
 -- Replicate an irregular array under a regular context
 replicate%$_{Ir->R}$% :: Expr Gamma sh
              %$\;\,$%-> Expr Gamma ((Segments (ctx++sh_1), Vector e_1), ...)
@@ -1203,8 +1201,8 @@ replicate_Ir :: Vect ctx t t_flat
             -> Expr Gamma (Segments sh)
             -> Expr Gamma t_flat
             -> (exists t'_flat. (Vect (ctx++sh) t t'_flat, Expr Gamma t'_flat))
-replicate_Ir Avoid_S          _  t = (Avoid_S, t)
-replicate_Ir Avoid_A          _  t = (Avoid_A, t)
+replicate_Ir Avoid_S           _  t = (Avoid_S, t)
+replicate_Ir Avoid_A           _  t = (Avoid_A, t)
 replicate_Ir (Regular r)      sh t = (Regular r, replicate%$_{R->Ir}$% r sh t)
 replicate_Ir (Irregular r)    sh t = (Irregular r, replicate%$_{Ir->Ir}$% r sh t)
 replicate_Ir (Tuple (r_1,..))  sh t | (r'_1, t_1) <- replicate_Ir r_0 sh (prj 1 t)
@@ -1254,8 +1252,9 @@ zipWith_seg :: (forall Gamma_flat. Expr Gamma_flat a -> Expr Gamma_flat b -> Exp
         -> Expr Gamma (Segments sh, Vector a)
         -> Expr Gamma (Segments sh, Vector b)
         -> Expr Gamma (Segments sh, Vector c)
-zipWith_seg f as bs = let segs = intersects (prj 1 as) (prj 1 bs)
-                     in ( segs, generate_seg segs (\v_0. f (weaken as ! Z :. weaken segs # v_0) (weaken bs ! Z :. weaken segs # v_0)))
+zipWith_seg f as bs =
+  let segs = intersects (prj 1 as) (prj 1 bs)
+  in ( segs, generate_seg segs (\v_0. f (weaken as ! Z :. weaken segs # v_0) (weaken bs ! Z :. weaken segs # v_0)))
 
 unit :: IsScalar a => Expr Gamma a -> Expr Gamma (Array Z a)
 unit a = generate Z (\_. (weaken a))
@@ -1264,19 +1263,21 @@ inside :: Expr Gamma sh' -> Expr Gamma (sh++sh'') -> Expr Gamma (sh++sh'++sh'')
 inside sh' sh = indexLeft sh ++ sh' ++ indexRight sh
 
 outside :: Expr Gamma (sh++sh'++sh'') -> Expr Gamma (sh++sh'')
-outside sh    = indexLeft sh ++ indexRight sh
+outside sh = indexLeft sh ++ indexRight sh
 
 insides :: Expr Gamma (Segments sh') -> Expr Gamma (sh++sh'') -> Expr Gamma (sh++sh'++sh'')
-insides segs' segs = lefts segs `cross` segs' `cross` rights segs
+insides segs%$_{inner}$% segs%$_{outer}$% = lefts segs%$_{outer}$% `cross` segs%$_{inner}$% `cross` rights segs%$_{outer}$%
 
+-- Add a fresh variable to the environment
+weaken :: Expr Gamma t -> Expr (a : Gamma) t
 \end{lstlisting}
-\caption{Other simple operations implemented as meta-functions}
+\caption{Auxiliary operations implemented as meta-functions}
 \label{fig:lst-auxiliary}
 \end{figure}
 %
 
 \begin{figure}
-\begin{lstlisting}[basicstyle=\footnotesize\ttfamily,multicols=2,style=ndp]
+\begin{lstlisting}[multicols=2,style=ndp]
 Lift[|c|] _   = (Avoid_S, c)
 Lift[|v|] env = var env v
 Lift[|p_1 e|]
@@ -1312,6 +1313,8 @@ Lift[|(let v_0 = e_1 in e_2|] env
   | (r_1, e_1_flat) <- Lift[|e_1|] env
   , (r_2, e_2_flat) <- Lift[|e_2|] (r_1 : env)
   = (r_2, let v_0 = e_1_flat in e_2_flat)
+
+
 Lift[|(e_1,...,e_n)|] env
   | (r_0, e_1_flat) <- Lift[|e_1|] env
   ...
@@ -1351,10 +1354,10 @@ Lift[|fold (\v_1 v_0. e_1) e_2 e_3|] env
 \label{fig:lifting-transform}
 \end{figure}
 
-The main rules of the vectorisation transformation are given in Figure~\ref{fig:lifting-transform}. As can be seen, for each language construct we have to flatten any arguments and handle cases for both regular and irregular results. What follows is an explanation of how each language construct is flattened.
+The transformation rules of the flattening transformation are given in Figure~\ref{fig:lifting-transform}. What follows is an explanation of how each language construct is flattened.
 
 \subsubsection{Literals}
-This is the simplest construct in terms of flattening. When it encounters a literal value, vectorisation returns it as it is, paired with the \lstinline[style=ndp]{Avoid_S} constructor to signal that it has not been flattened yet. Unlike some previous forms of flattening, we delay replication of non-flattened forms till they are required.
+This is the simplest construct in terms of flattening. When it encounters a literal value, flattening returns it as it is, paired with the \lstinline[style=ndp]{Avoid_S} constructor to signal that it has not been flattened yet. Unlike some previous forms of flattening, we delay replication of non-flattened forms till they are required.
 
 \subsubsection{Variables }
 When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index then the variable itself is let unchanged but may have a series of replicates applied to it in order to make it \emph{fit} the current context. Because our indices are typed, however, in all cases we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
