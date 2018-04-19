@@ -15,8 +15,6 @@
 
 *.out
 
-thesis.pdf
-
 thesis.synctex.gz
 
 *.toc
