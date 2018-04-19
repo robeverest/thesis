@@ -530,7 +530,7 @@ Before approaching how to construct an expression of the right type, lets first 
 We can enumerate its indices with
 %
 \begin{lstlisting}[style=ndp]
-indices seg :: Segments sh -> Vector sh
+indices_seg :: Segments sh -> Vector sh
 indices_seg segs = generate_seg segs (\v_0. v_0)
 \end{lstlisting}
 %
@@ -1045,12 +1045,12 @@ data Vect ctx t t_flat where
             => Vect ctx t t                                              -- avoid flattening
   Avoid_A    :: IsScalar e
             => Vect ctx (Array sh e) (Array sh e)
-  Regular   :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)   -- regular context
+  Regular   :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)    -- regular context
             -> Vect ctx t ( Array (ctx++sh_1) e_1
                         , Array (ctx++sh_2) e_2
                         , ...
                         , Array (ctx++sh_n) e_n)
-  Irregular :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)   -- irregular context
+  Irregular :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)    -- irregular context
             -> Vect ctx t ( (Segments (ctx++sh_1), Vector e_1)
                         , (Segments (ctx++sh_2), Vector e_2)
                         , ...
@@ -1059,7 +1059,7 @@ data Vect ctx t t_flat where
             -> Vect ctx (t_1, t_2, .., t_n) (t_1_flat, t_2_flat, ..., t_n_flat)
 \end{lstlisting}
 %
-The \lstinline[style=ndp]{Tuple}$_\mathcal{F}$ constructor may at first glance seem unnecessary, but what it allows for is different components of tuples to be flattened independently. This is crucial as one component might be used in a regular context, while another in an irregular context; similarly one might use avoidance, while the others don't, et cetera. One, artificial, example of this is:
+The \lstinline[style=ndp]{Tuple}$_\mathcal{F}$ constructor may at first glance seem unnecessary, but it allows for is different components of tuples to be flattened independently. This is crucial as one component might be used in a regular context, while another in an irregular context; similarly one might use avoidance, while the others don't, et cetera. One example of this is:
 %
 \begin{lstlisting}[style=ndp]
 foo :: Vector Int -> (Vector (Vector Int), Vector (Vector Int))
@@ -1067,7 +1067,7 @@ foo xs = ( generate (Z:.10) (\_ -> xs)
          , map (\x -> generate (Z:.x) (_ -> x)) xs)
 \end{lstlisting}
 %
-What is happening here is we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it being the same length of @xs@ (because they are @xs@). Because each sub-vector is the same length it is regular and thus can use a regular representation after flattening. The second component of the pair is of the same length as @xs@, but with each sub-vector having its length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
+Here we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it @xs@. Because each sub-vector is the same length it is regular and thus can use a regular representation after flattening. The second component of the pair is of the same length as @xs@, but with each sub-vector of length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
 
 To further underpin this, consider how tuples are often used in functional programs. A programmer would expect
 %
@@ -1084,7 +1084,7 @@ bar' = let (a,b) = (A, B)
        in C
 \end{lstlisting}
 %
-Assuming that B does not depend on A (or vice versa), it would be undesirable for the simple introduction of a tuple to group related bindings to introduce substantial performance changes. Similarly, \emph{currying} or \emph{uncurrying} functions should not alter their performance characteristics.
+Assuming that B does not depend on A (or vice versa), it would be undesirable for the simple introduction of a tuple grouping related bindings to introduce substantial performance changes. Similarly, \emph{currying} or \emph{uncurrying} functions should not alter their performance characteristics.
 
 Flattening avoidance is covered by the \lstinline[style=ndp]{Avoid_S} and \lstinline[style=ndp]{Avoid_A} alternatives, where we keep the type the same. We don't even need to normalise as the @e@ in \lstinline[style=ndp]{Avoid_S :: Vect ctx e e} and \lstinline[style=ndp]{Avoid_A :: Vect ctx (Array sh e) (Array sh e)} is guaranteed to be scalar by the @IsScalar@ constraint.
 
@@ -1123,20 +1123,20 @@ The lifting transform \lstinline[style=ndp]{Lift} takes a term in our language a
 Lift[|.|] :: Expr Gamma t -> Env ctx Gamma Gamma_flat -> (exists t_flat. (Vect ctx t t_flat, Expr Gamma_flat t_flat))
 \end{lstlisting}
 %
-This transformation has many components, so we'll look at each one in turn. The first argument of type \lstinline[style=ndp]{Expr Gamma t} is the typed abstract syntax (AST) of the core language term that is to be flattened, where \lstinline[style=ndp]{Gamma} is a type-level list of the free variables in the term and @t@ is the term's type.
+This transformation has many components, so we'll look at each one in turn. The first argument of type \lstinline[style=ndp]{Expr Gamma  t} is the typed abstract syntax (AST) of the core language term that is to be flattened, where \lstinline[style=ndp]{Gamma} is a type-level list of the free variables in the term and @t@ is its type.
 
-The second argument of type \lstinline[style=ndp]{Env ctx Gamma Gamma_flat} is an environment that relates the types of the free variables \lstinline[style=ndp]{Gamma} to their flattened form \lstinline[style=ndp]{Gamma_flat}. Like the \lstinline[style=ndp]{Vect} relation, it is also parameterised by the shape of the flattening context.
+The second argument of type \lstinline[style=ndp]{Env ctx Gamma  Gamma_flat} is an environment that relates the types of the free variables \lstinline[style=ndp]{Gamma} to their flattened form \lstinline[style=ndp]{Gamma_,flat}. Like the \lstinline[style=ndp]{Vect} relation, it is also parameterised by the shape of the flattening context.
 
-Finally, the result combines the witness for the flattened result type \lstinline[style=ndp]{t_flat} with the lifted term \lstinline[style=ndp]{Expr Gamma_flat t_flat}, whose type parameters have been flattened to match, establishing type-preservation of the transformation.
+Finally, the result combines the witness for the flattened result type \lstinline[style=ndp]{t_flat} with the lifted term \lstinline[style=ndp]{Expr Gamma_,flat t_flat}, whose type parameters have been flattened to match, establishing type-preservation of the transformation.
 
-The structure of the environment \lstinline[style=ndp]{Env ctx Gamma  Gamma_flat} is somewhat more involved than usual, due to special requirements during flattening. Something we have not seen in explicitly in our previous examples is what happens when we access variables brought into scope with a @generate@ outside the most immediate one.
+The structure of the environment \lstinline[style=ndp]{Env ctx Gamma  Gamma_,flat} is somewhat more involved than usual, due to special requirements during flattening. Specifically, we need to handle access variables to brought into scope with a @generate@ outside the most immediate one. To give an example for this:
 %
 \begin{lstlisting}
 mults :: Expr [] (Vector (Vector Int))
 mults = generate (Z:.10) (\v_0 -> generate v_0 (\v_0 -> indexHead v_1 * indexHead v_0))
 \end{lstlisting}
 %
-Here we're constructing the lower triangle of a multiplication table. If we want to flatten this we have to lift the inner @generate@ from 1D to 2D but not lift the outer generate at all. However, in the body of the inner generate we are referring to a variable bound by the outer generate. This presents a problem. The variable was bound at a point which is not being lifted to the same dimension. We partially resolve this by tracking the shape of the flattening context in the environment, but this doesn't take into account the actual extent of the context. Because of this, we track both regular (the @(:@$_R$@)@ alternative) and irregular contexts (the @(:@$_{Ir}$@)@ alternative). When the lifting transform encounters a generate it must extend the lifting context by the shape of the generated array. The generation function can then be lifted under this larger context.
+Here we're constructing the lower triangle of a multiplication table. If we want to flatten this, we have to lift the inner @generate@ from 1D to 2D but not lift the outer generate at all. However, in the body of the inner generate we are referring to a variable bound by the outer generate. This presents a problem. The variable was bound at a point which is not being lifted to the same dimension. We partially resolve this by tracking the shape of the flattening context in the environment, but this doesn't take into account the actual extent of the context. Because of this, we track both regular (the @(:@$_R$@)@ alternative) and irregular contexts (the @(:@$_{Ir}$@)@ alternative). When the lifting transform encounters a generate it must extend the lifting context by the shape of the generated array. The generation function can then be lifted under this larger context.
 %
 \begin{lstlisting}[style=ndp]
 data Env ctx Gamma Gamma_flat where
@@ -1154,7 +1154,7 @@ data Env ctx Gamma Gamma_flat where
         -> Env (ctx++sh) Gamma Gamma_flat
 \end{lstlisting}
 
-A key insight of the environment structure is that a closed term can only be lifted into @Z@. Intuitively, this makes sense. We only need to lift things into a higher dimension when it is used in a nested context. A closed term, by definition, is not.
+A key insight of the environment structure is that a closed term can only be lifted into @Z@. Intuitively, this makes sense. We only need to lift things into a higher dimension when it is used in a nested context. A closed term, by definition, is not used in any context, nested or otherwise.
 
 The use of this environment structure can be seen in the definition of the auxiliary function @var@ defined in Figure~\ref{fig:lst-variables}, which looks up free variables in the given environment. In addition to that conventional purpose, it also replicates the variable according to each enclosing context; i.e., while traversing the environment to look up the variable, it inserts a \lstinline[style=ndp]{replicate_R} and \lstinline[style=ndp]{replicate_Ir} for every \lstinline[style=ndp]{(:_R)} and \lstinline[style=ndp]{(:_Ir)} that it comes across, respectively.
 %
@@ -1162,10 +1162,10 @@ The use of this environment structure can be seen in the definition of the auxil
 \begin{lstlisting}[style=ndp]
 -- Lifting variables
 var :: Env ctx Gamma Gamma_flat -> Var Gamma t -> (exists t_flat. (Vect ctx t t_flat, Expr Gamma_flat t_flat))
-var (r : _)        v_0   = (r, v_0)
-var (_ : env)      v%$_{n+1}\,$% | (r, e) <- var env v_n
+var (r    :   _  ) v_0   = (r, v_0)
+var (_    :   env) v%$_{n+1}\,$% | (r, e) <- var env v_n
                         = (r, weaken e)
-var (sh :_R env  )  v    | (r, e) <- var env v        -- Gone past a level of regular nesting
+var (sh   :_R  env) v    | (r, e) <- var env v        -- Gone past a level of regular nesting
                         = replicate_R r sh e
 var (segs :_Ir env) v    | (r, e) <- var env v        -- Gone past a level of irregular nesting
                         = replicate_Ir r segs e
@@ -1174,7 +1174,7 @@ var (segs :_Ir env) v    | (r, e) <- var env v        -- Gone past a level of ir
 replicate_R  :: Vect ctx t t_flat
             -> Expr Gamma sh
             -> Expr Gamma t_flat
-            -> (exists t'_flat. (Vect (ctx++sh) t t'_flat, Expr Gamma t'_flat))
+            -> (exists t_new_flat. (Vect (ctx++sh) t t_new_flat, Expr Gamma t_new_flat))
 replicate_R Avoid_S           _  t = (Avoid_S, t)
 replicate_R Avoid_A           _  t = (Avoid_A, t)
 replicate_R (Regular r)      sh t = (Regular r, replicate%$_{R->R}$% r sh t)
@@ -1200,7 +1200,7 @@ replicate%$_{Ir->R}$% sh arr = replicate%$_{Ir->Ir}$% (segmented (generate Z sh)
 replicate_Ir :: Vect ctx t t_flat
             -> Expr Gamma (Segments sh)
             -> Expr Gamma t_flat
-            -> (exists t'_flat. (Vect (ctx++sh) t t'_flat, Expr Gamma t'_flat))
+            -> (exists t_new_flat. (Vect (ctx++sh) t t_new_flat, Expr Gamma t_new_flat))
 replicate_Ir Avoid_S           _  t = (Avoid_S, t)
 replicate_Ir Avoid_A           _  t = (Avoid_A, t)
 replicate_Ir (Regular r)      sh t = (Regular r, replicate%$_{R->Ir}$% r sh t)
@@ -1280,31 +1280,31 @@ weaken :: Expr Gamma t -> Expr (a : Gamma) t
 \begin{lstlisting}[multicols=2,style=ndp]
 Lift[|c|] _   = (Avoid_S, c)
 Lift[|v|] env = var env v
-Lift[|p_1 e|]
-  | (Avoid_S, e_flat) <- Lift[|e|] env
+Lift[|p_1 e|] env
+  | (Avoid_S, e_flat)           <- Lift[|e|] env
   = (Avoid_S, p_1 e_flat)
-  | (Regular Scalar, e_flat) <- Lift[|e|] env
-  = (Regular Scalar, map (\v_0. p_1 v_0) e_flat)
+  | (Regular Scalar, e_flat)   <- Lift[|e|] env
+  = (Regular Scalar, map p_1 e_flat)
   | (Irregular Scalar, e_flat) <- Lift[|e|] env
   = ( Irregular Scalar
-    , (prj 1 e_flat, map (\v_0. p_1 v_0) (prj 2 e_flat)))
+    , (prj 1 e_flat, map p_1 (prj 2 e_flat)))
 Lift[|p_2 e_1 e_2|]
   | (r_1, e_1_flat) <- Lift[|e_1|]
   , (r_2, e_2_flat) <- Lift[|e_2|]
   = liftBinOp p_2 r_1 r_2 e_1_flat e_2_flat
-Lift[|extent e|]
-  | (Avoid_A, e_flat) <- Lift[|e|] env
+Lift[|extent e|] env
+  | (Avoid_A, e_flat)             <- Lift[|e|] env
   = (Avoid_A, extent e_flat)
-  | (Regular (Nest _), e_flat) <- Lift[|e|] env
+  | (Regular (Nest _), e_flat)   <- Lift[|e|] env
   = (Avoid, extent_R e_flat)
   | (Irregular (Nest _), e_flat) <- Lift[|e|] env
   = (Irregular Scalar, extent_Ir e_flat)
-Lift[|e_1 ! e_2|]
+Lift[|e_1 ! e_2|] env
   | (Avoid_A, e_1_flat) <- Lift[|e_1|] env
-  , (Avoid_S, e_2_flat) <- Lift[|e_2|] env
+  , (Avoid_S, e_2_flat)             <- Lift[|e_2|] env
   = (Avoid_S, e_1_flat ! e_2_flat)
-  | (Regular (Nest r), e_1_flat)  <- Lift[|e_1|] env
-  , (Regular Scalar, e_2_flat)  <- Lift_F[|e_2|] env
+  | (Regular (Nest r), e_1_flat)   <- Lift[|e_1|] env
+  , (Regular Scalar, e_2_flat)     <- Lift_F[|e_2|] env
   = (Regular r, e_flat !_R e_2_flat)
   | (Irregular (Nest r), e_1_flat) <- Lift_F[|e_1|] env
   , (Irregular Scalar, e_2_flat)   <- Lift_F[|e_2|] env
@@ -1313,26 +1313,29 @@ Lift[|(let v_0 = e_1 in e_2|] env
   | (r_1, e_1_flat) <- Lift[|e_1|] env
   , (r_2, e_2_flat) <- Lift[|e_2|] (r_1 : env)
   = (r_2, let v_0 = e_1_flat in e_2_flat)
-
-
 Lift[|(e_1,...,e_n)|] env
   | (r_0, e_1_flat) <- Lift[|e_1|] env
   ...
   , (r_n, e_n_flat) <- Lift[|e_n|] env
-  = (tuple (r_1,...,r_n), (e_1_flat,...,e_n_flat))
+  = (tuple_F (r_1,...,r_n), (e_1_flat,...,e_n_flat))
 Lift[|prj l e|] env
+  | (Avoid_S, e_flat)           <- Lift[|e|] env
+  = (Avoid_S, prj l e_flat)
   | (Tuple (..,r_l,..), e_flat) <- Lift[|e|] env
   = (r_l, prj l e_flat)
 Lift[|generate e_1 (\ v_0. e_2)|] env
+  -- Flattening is avoidable
   | (Avoid_S, e_1_flat) <- Lift[|e_1|] env
-  , (Avoid_S, e_2_flat)  <- Lift[|e_2|] (Avoid : env)
+  , (Avoid_S, e_2_flat) <- Lift[|e_2|] (Avoid : env)
   = (Avoid_A, generate e_1_flat (\ v_0. e_2_flat))
-  | Left ctx        <- context env
-  , (Avoid_S, e_1_flat)    <- Lift[|e_1|] env
-  , (r, e_2_flat) <- Lift[|e_2|]_F (Regular Scalar : e_1_flat :_R env)
+  -- Regular array in a regular context
+  | Left ctx       <- context env
+  , (Avoid_S, e_1_flat) <- Lift[|e_1|] env
+  , (r, e_2_flat)      <- Lift_F[|e_2|] (Regular Scalar : e_1_flat :_R env)
   = (nest r, let v_0 = enum_R ctx e_1_flat in e_2_flat)
+  -- Array is irregular or in irregular context
   | (r_1, e_1_flat) <- Lift[|e_1|] env
-  , segs <- segmentsOf r_1 e_1_flat
+  , segs            <- segmentsOf r_1 e_1_flat
   , (r_2, e_2_flat) <-
       Lift_F[|e_2|] (Irregular Scalar : segs :_Ir env)
   = (nest r_2, let v_0 = enum_Ir (context env) segs in e_2_flat)
@@ -1349,6 +1352,11 @@ Lift[|fold (\v_1 v_0. e_1) e_2 e_3|] env
   , (Avoid_S, e_1_flat)                <- Lift[|e_1|] (Avoid : env)
   , (Irregular (Nest r), e_3_flat) <- Lift[|e_3|] env
   = (Irregular r, fold_seg (\v_1 v_0. e_1_flat) e_2_flat e_3_flat)
+ %%
+ %%
+ %%
+ %%
+ %%
 \end{lstlisting}
 \caption{The lifting transformation}
 \label{fig:lifting-transform}
@@ -1357,25 +1365,25 @@ Lift[|fold (\v_1 v_0. e_1) e_2 e_3|] env
 The transformation rules of the flattening transformation are given in Figure~\ref{fig:lifting-transform}. What follows is an explanation of how each language construct is flattened.
 
 \subsubsection{Literals}
-This is the simplest construct in terms of flattening. When it encounters a literal value, flattening returns it as it is, paired with the \lstinline[style=ndp]{Avoid_S} constructor to signal that it has not been flattened yet. Unlike some previous forms of flattening, we delay replication of non-flattened forms till they are required.
+This is the simplest construct in terms of flattening. When it encounters a literal value, flattening returns it as it is, paired with the \lstinline[style=ndp]{Avoid_S} constructor to signal that it does not need to be lifted.
 
 \subsubsection{Variables }
-When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index then the variable itself is let unchanged but may have a series of replicates applied to it in order to make it \emph{fit} the current context. Because our indices are typed, however, in all cases we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
+When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index then the variable itself is let unchanged but may have a series of replicates applied to it in order to make it \emph{fit} the current context. Because our indices are typed, we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
 
 \subsubsection{Let bindings}
-The let-binding rule shows how bindings are introduced and how they are tracked via @Env@. The binding is first flattened, giving a \lstinline[style=ndp]{Vect}-witness. This witness is placed into the environment when flattening the body of the let-binding so that any occurrences of that variable are assigned the right type.
+The let-binding rule shows how bindings are introduced and how they are tracked via @Env@. The binding is first flattened, giving a \lstinline[style=ndp]{Vect}-witness. This witness is placed into the environment for flattening the body of the let-binding. This ensures that any occurrences of that variable are assigned the right type.
 
-To avoid any confusion the let-binding we are introducing here exists in the target language, not the meta language. To aid in explanation we assume that the let-syntax of our meta language is overloaded to construct let bindings in either the meta language or the object language as necessary.
+To avoid any confusion, the let-binding we are introducing here exists in the target language, not the meta language. We assume that the let-syntax of our meta language is overloaded to construct let bindings in either the meta language or the object language as necessary.
 
 \subsubsection{Tuples and tuple projection}
-In order to lift a tuple constructor, we simply lift each component and put them in a new tuple. Similarly to let bindings, we assume that our meta language overloads tuple construction to allow for the construction of tuples in our object language.
+In order to lift a tuple constructor, we lift each component and construct a new tuple containing them. Similarly to let bindings, we assume that our meta language overloads tuple construction to support construction in our object language.
 
 In the case of tuple projection, it is similarly just a matter of projecting the same component from the lifted tuple.
 
 \subsubsection{Primitive operations}
 For unary operations, lifting is straightforward. We simply @map@ the operation over the lifted operand.
 
-It gets more complex with binary operations as we have the possibility that each argument ends up having a different representation after lifting. Each could be either avoided, regular or irregular. In total this gives us 9 different possible combinations, but we are able to cheat a bit by handling symmetric cases by swapping the arguments of the operation.
+It gets more complex with binary operations as we have the possibility that each operand ends up having a different representation after lifting. Each could be either avoided, regular or irregular. In total this gives us 9 different possible combinations, but we are able to cheat a bit by handling symmetric cases by swapping the arguments of the operation.
 %
 \begin{lstlisting}[style=ndp]
 liftBinOp :: (IsScalar e_1, IsScalar e_2)
@@ -1408,7 +1416,7 @@ extent_R :: Expr Gamma (Array (ctx++(sh++sh_1)) e_1, ...)
 extent_R (arr,...) = indexLeft (indexRight (extent arr))
 \end{lstlisting}
 %
-This is an example of how flattening can still be avoided even if an expression depends on an expression that has to be flattened.
+This is the one case where flattening can still be avoided even if an expression depends on an expression that had to be flattened.
 
 We do something similar in the irregular case with \lstinline[style=ndp]{extent_Ir}, but here we cannot avoid flattening.
 %
@@ -1529,9 +1537,9 @@ arr !_Ir ix = ( let segs = (outsides (prj 0 (prj 1 arr)))
 \end{lstlisting}
 
 \subsubsection{Array construction}
-The @generate@ rule is one of the more interesting ones. In our language, it is the only way in which nesting can be introduced. All other operations either remove nesting or preserve it. Because of this, we have to handle a greater number of possible cases. This cases are handled by a backtrack search. First, we have to check if flattening can be avoided entirely, which would be the cheapest solution. This is only true if flattening can be avoided for both arguments and the second argument is scalar.
+The @generate@ rule is one of the more interesting ones. In our language, it is the only way in which nesting can be introduced. All other operations either remove nesting or preserve it. Because of this, we have to handle a greater number of possible cases. These cases are handled by a backtrack search. First, we have to check if flattening can be avoided entirely, which would be the cheapest solution. This is only true if flattening can be avoided for both arguments and the second argument is scalar.
 
-If it is not possible to avoid flattening for both arguments, but it is for the first argument (the extent of the output) then we can be smarter. We know that this occurrence of @generate@ is not introducing any new irregular nesting. However, it may still be getting used in an irregular context, or its second argument (the generation function) may itself be introducing irregularity. For this reason, we need to use @context@ given in Figure~\ref{fig:forced-lifting} to determine whether we are in a regular or irregular context. If we are in regular context then we do a lifted enumeration with \lstinline[style=ndp]{enum_R}.
+If it is not possible to avoid flattening for both arguments, but it is for the first argument (the extent of the output) then we can be smarter. We know that this occurrence of @generate@ is not introducing any new irregular nesting. However, it may still be getting used in an irregular context, or its second argument (the generation function) may itself be introducing irregularity. For this reason, we need to use @context@, given in Figure~\ref{fig:forced-lifting}, to determine whether we are in a regular or irregular context. If we are in regular context then we do a lifted enumeration with \lstinline[style=ndp]{enum_R}.
 %
 \begin{lstlisting}[style=ndp]
 enum_R :: Shape sh => Expr Gamma ctx -> Expr Gamma sh -> Expr Gamma (Array (ctx++sh) sh)
@@ -1557,7 +1565,7 @@ nest (Tuple (r_1, ..., r_n)) = Tuple (nest r_1, ..., nest r_n)
 %
 This function, captures a key insight of the flattening transform. Namely, that a term of type @e@ flattened under the context \lstinline[style=ndp]{ctx++sh} would have the same possible flattened representations as a term of type @Array sh e@ flattened under the context \lstinline[style=ndp]{ctx}.
 
-This leaves us with the case final case. This occurs when flattening cannot be avoided for the first argument. In such a case, we are introducing irregular nesting. We must extract segment descriptors from the flattened first argument with @segmentsOf@
+We are left with the final case. This occurs when flattening cannot be avoided for the first argument. In such a case, irregular nesting is being introduced. We must extract segment descriptors from the flattened first argument with @segmentsOf@
 %
 \begin{lstlisting}[style=ndp]
 segmentsOf :: Shape sh
