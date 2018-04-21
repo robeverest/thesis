@@ -1,12 +1,12 @@
 \chapter{Implementing and Optimising}
 \label{chap:implementation}
 
-Now that we have a foundation for regularity aware flattening of nested data parallel programs we will explore what is required to use our program transform in an already implemented, expressive, powerful, high-performance array language and compiler. The implementation we are about to describe is publicly available for inspection and analysis so the description we give will be a high level overview. If more specific detail is required, we refer you to said implementation.
+Now that we have a foundation for regularity aware flattening of nested data parallel programs we will explore what is required to use our program transform in an already implemented, expressive, powerful, high-performance array language and compiler. We will provide a high-level overview of the the implementation. For more detailed information we refer to the publicly available implementation.\footnote{This is available at \url{https://github.com/AccelerateHS/accelerate/tree/feature/sequences}}
 
-In this chapter, we will first revisit Accelerate's compilation pipeline (from Chapter~\ref{chap:background}) in order to see how our sequences extension fits into that. Then we will explore the implementation of the flattening transform itself. Following this, we will describe how we extended Accelerate's optimisation passes in order to achieve competitive absolute performance of our sequence programs. Finally, we will talk about the dynamic component of the scheduling necessary to execute sequence computations.
+In this chapter, we will first revisit Accelerate's compilation pipeline (from Chapter~\ref{chap:background}) in order to see how our sequences extension fits into that, before exploring the implementation of the flattening transform itself. Following this, we will describe how we extended Accelerate's optimisation passes in order to achieve competitive absolute performance of our sequence programs. Finally, we will talk about the dynamic component of the scheduling necessary to execute sequence computations.
 
 \section{Architecture}
-As discussed in Chapter~\ref{chap:background} Accelerate has a fairly standard compiler architecture. It is a pipeline that takes a higher-order AST and ultimately produces LLVM IR which it passes to a the LLVM compiler in order to generate native code.
+As discussed in Chapter~\ref{chap:background}, Accelerate has a fairly standard compiler architecture. It is a pipeline that takes a higher-order AST and ultimately produces LLVM IR which it passes to a the LLVM compiler in order to generate native code.
 
 Prior to the sequences extension Accelerate's pipeline could be arranged into these stages.
 

@@ -1,15 +1,15 @@
 \chapter{Sequences}
 \label{chap:motivation}
 
-In this chapter we will introduce a new feature to accelerate, that of \emph{irregular array sequences}. We first highlight two limitations of Accelerate. We then introduce a novel, in the context of array languages, language extension that addresses both of these limitations. This extension, \emph{irregular array sequences}, adds to the expressiveness of Accelerate in a significant way, but requires both a new program transformation, described in Chapter~\ref{chap:theory} and other optimisations, described in Chapter~\ref{chap:implementation}.
+In this chapter we will introduce \emph{irregular array sequences} as an extension to Accelerate. This extension adds to the expressiveness of Accelerate in a significant way, but requires both a new program transformation, described in Chapter~\ref{chap:theory} and other optimisations, described in Chapter~\ref{chap:implementation}.
 
 % Before describing the core theory (Chapter \ref{chap:theory}) and the implementation (Chapter \ref{chap:implementation}) of our work, it is important to first address \emph{why} what we have done is useful. As discussed above, we propose that even a limited form of nesting allows for greater expressiveness of array programs. In addition, if that nesting is in the form of sequences of arrays we get the benefit of greater control of memory usage and the ability to automatically schedule out of core algorithms.
 
 % We will motive the work by presenting a simple API extension to Accelerate that adds sequences to the language. We will also show through a series of examples how this extension enables the writing of programs that either would have been hard to write in a modular way or not possible to write at all.
 
-\section{Limitations}
+\section{Limitations of Accelerate}
 \label{sec:limitations}
-While array languages offer an expressive, high-level means of parallel programming, they are are not without limitations. The two we wish to highlight in particular are:
+While flat data parallel array languages offer an expressive, high-level means of parallel programming, they are are not without limitations. In particular:
 %
 \begin{enumerate}
 \item The reduction of modularity that results from strictly flat data-parallelism (\ref{sec:problem_1}).
@@ -20,15 +20,14 @@ While array languages offer an expressive, high-level means of parallel programm
 \subsection{Modularity}
 \label{sec:problem_1}
 
-A known limitation of flat data-parallel programming models is that they can
-inhibit modularity. For example, recall the simple dot product example from Section~\ref{sec:background-accelerate}:
+Recall the simple dot product example from Section~\ref{sec:background-accelerate}:
 %
 \begin{lstlisting}
 dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
 dotp xs ys = fold (+) 0 ( zipWith (*) xs ys )
 \end{lstlisting}
 %
-We might wish to lift @dotp@ to a matrix-vector product, by applying it to each row of the input matrix:
+We would like to re-use this function to implement a matrix-vector product, by applying it to each row of the input matrix:
 %
 \begin{lstlisting}
 mvm%$_\texttt{ndp}$% :: Acc (Matrix Float) -> Acc (Vector Float) -> Acc (Vector Float)
@@ -41,29 +40,25 @@ Here, @generate@ creates a one-dimensional vector containing @m@ elements by
 applying the supplied function at each index in data-parallel. At each index, we
 extract the appropriate row of the matrix using @slice@, and pass this to our existing @dotp@ function together with the input vector.
 
-\begin{aside}
-\begin{center}
-\textbf{Aside: Extracting subdimensions}
-\end{center}
-
 The \inl{slice} operation is a generalised array indexing function
 which is used to cut out \emph{entire dimensions} of an array. In @slice mat (row :. All)@,
 we extract \inl{All} columns at one specific \inl{row} of the given
 two-dimensional matrix, resulting in a one-dimensional vector.
-\end{aside}
 
+@the@ is a specialised from of indexing for extracting the value from a scalar array.
+%
+\begin{lstlisting}
+the :: Acc (Scalar a) -> Exp a
+the = (! Z)
+\end{lstlisting}
+%
 
 Unfortunately, since both @generate@ and @dotp@ are data-parallel operations,
 this definition requires nested data-parallelism and is thus not permitted.\footnote{By not permitted, we mean it will not compile. It will type check, but the Accelerate compiler will reject it. This happens at Accelerate compile time which is actually Haskell runtime.}
 %
 More specifically, the problem lies with the data-parallel operation
 \inl{slice} which \emph{depends on} the scalar argument \inl{row}. The clue that
-this definition includes nested data-parallelism is in the use of the function
-%
-\begin{lstlisting}
-the :: Acc (Scalar a) -> Exp a
-\end{lstlisting}
-%
+this definition includes nested data-parallelism is in the use of @the@.
 This effectively conceals that \inl{dotp} is a collective array computation in order to match the type expected by \inl{generate}, which is that of scalar expressions.
 Consequently, we cannot reuse @dotp@ to implement matrix-vector multiplication; instead, we have to write it from scratch using @replicate@
 %
@@ -76,15 +71,9 @@ mvm%$_{rep}$% mat vec =
     fold (+) 0 ( zipWith (*) mat vec' )
 \end{lstlisting}
 %
+Here, we're using the inverse of @slice@, @replicate@. It replicates a given array in across an arbitrary set of dimensions. With @replicate (Z :. m :. All) vec@, we're treating @vec@ as a row vector and replicating it across the Y dimension $m$ times.
 
-\begin{aside}
-\begin{center}
-\textbf{Aside: Replicating subdimensions}
-\end{center}
-The inverse of @slice@, @replicate@ replicates a given array in across an arbitrary set of dimensions. Here, with @replicate (Z :. m :. All) vec@, we're treating @vec@ as a row vector and replicating it across the Y dimension $m$ times.
-\end{aside}
-
-Similarly, computations on irregular structures, such as sparse matrices, which are most naturally expressed in nested form, require an unwieldy encoding when we are restricted to only flat data-parallelism (see Section~\ref{sec:irregularity}).
+Similar to this example, computations on irregular structures, such as sparse matrices, which are most naturally expressed in nested form, require an unwieldy encoding when we are restricted to only flat data-parallelism (see Section~\ref{sec:irregularity}).
 
 % For example, we define a sparse vector with
 % %
