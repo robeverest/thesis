@@ -15,6 +15,7 @@
 \usepackage{graphicx}
 \usepackage{ifdraft}
 \usepackage[final]{listings}
+\usepackage{marginnote}
 \usepackage{mathpartir}
 \usepackage{multicol}
 \usepackage[sort&compress,nonamebreak,numbers]{natbib}
@@ -53,6 +54,12 @@
 \newcommand{\finaltodo}[1]      {\note{LightRed}{TODO FINAL:}{#1}}
 \newcommand{\REF}               {\note{LightRed}{REF}}
 \newcommand{\CITE}              {\note{LightRed}{CITE}}
+
+\newcommand{\NOTE}[1]{\marginnote{%
+  \sethlcolor{LightRed}%
+  \hl{\emph{#1}}%
+  \sethlcolor{yellow}%
+}}
 
 \newcommand{\Vector}{\texttt{Vector}}
 \newcommand{\lift}[1]{{#1}^{\mathrm{chunk}}}
