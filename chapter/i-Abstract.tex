@@ -5,7 +5,7 @@ It is well established that declarative array languages are a high-level and exp
 
 A second problem is that arrays, by definition, allow for random access. This means that arrays must be loaded into memory in their entirety. If memory is limited, as is the case with GPUs, array languages offer no high-level means of expressing programs containing structures too large for available memory but that do not require random access.
 
-The research in this dissertation describes an extension to the Accelerate language, irregular array sequences. It allows for both a limited, but still useful, form of nesting and for the writing and execution of streaming programs under limited working memory.
+The research in this dissertation describes an extension to the Accelerate language: irregular array sequences. It allows for both a limited, but still useful, form of nesting and for the writing and execution of streaming programs under limited working memory.
 
 Furthermore, in realising irregular array sequences, we describe a generalised program flattening (vectorisation) transform that does not introduce the cost on nesting that is unnecessarily incurred for strictly regular (sub)programs. This transform is applicable to a much broader domain than just array sequences.
 
