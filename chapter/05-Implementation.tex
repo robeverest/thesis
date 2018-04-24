@@ -106,23 +106,23 @@ data Norm t t' where
    Tuple%$_\mathcal{N}\,$%:: (Norm t_1 t_1', Norm t_2 t_2', ..., Norm t_n t_n')
           -> Norm (t_1, t_2, ..., t_n) (t_1', t_2', ..., t_n')
 
-data Vect ctx t t_flat where
+data Vect sh_l t t_flat where
    Avoid_S    :: IsScalar t
-             => Vect ctx t t                                             -- avoid vectorisation
+             => Vect sh_l t t                                             -- avoid vectorisation
    Avoid_A    :: IsScalar e
-             => Vect ctx (Array sh e) (Array sh e)
+             => Vect sh_l (Array sh e) (Array sh e)
    Regular   :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)   -- regular context
-             -> Vect ctx t ( Array (ctx++sh_1) e_1
-                         , Array (ctx++sh_2) e_2
+             -> Vect sh_l t ( Array (sh_l++sh_1) e_1
+                         , Array (sh_l++sh_2) e_2
                          , ...
-                         , Array (ctx++sh_n) e_n)
+                         , Array (sh_l++sh_n) e_n)
    Irregular :: Norm t (Array sh_1 e_1, Array sh_2 e_2, ..., Array sh_n e_n)   -- irregular context
-             -> Vect ctx t ( (Segments (ctx++sh_1), Vector e_1)
-                         , (Segments (ctx++sh_2), Vector e_2)
+             -> Vect sh_l t ( (Segments (sh_l++sh_1), Vector e_1)
+                         , (Segments (sh_l++sh_2), Vector e_2)
                          , ...
-                         , (Segments (ctx++sh_n), Vector e_n))
-   Tuple_F    :: (Vect ctx t_1 t_1_flat, Vect ctx t_2 t_2_flat, ..., Vect ctx t_n t_n_flat)
-             -> Vect ctx (t_1, t_2, .., t_n) (t_1_flat, t_2_flat, ..., t_n_flat)
+                         , (Segments (sh_l++sh_n), Vector e_n))
+   Tuple_F    :: (Vect sh_l t_1 t_1_flat, Vect sh_l t_2 t_2_flat, ..., Vect sh_l t_n t_n_flat)
+             -> Vect sh_l (t_1, t_2, .., t_n) (t_1_flat, t_2_flat, ..., t_n_flat)
 \end{lstlisting}
 %
 Because of the differences between Accelerate and \ndp{}, in the implementation we combine both of these relations into a single GADT.
@@ -139,13 +139,13 @@ data LiftedType t t' where
                -> LiftedType t t'
 \end{lstlisting}
 %
-It is important to note that this structure is not parameterised by the lifting context. This is because of the lack of deep nesting in Accelerate. As our only nested structure is the sequence, and sequences themselves cannot be nested, the only possible nested context is being an element of a sequence. Hence, we can represent all possible contexts with an @Int@.
+It is important to note that this structure is not parameterised by the lifting shape. This is because of the lack of deep nesting in Accelerate. As our only nested structure is the sequence, and sequences themselves cannot be nested, the only possible nested context is being an element of a sequence. Hence, we can represent all possible lifting shapes with an @Int@.
 
-The first two constructors deal with the unit type. This is something we didn't encounter in Chapter~\ref{chap:theory}. In short, the unit type (@()@) in a lifted context can just be represented by the context itself. There is only one possible unit type, so a collection of elements of that type can be represented by just the shape of the collection. For a sequence, that context is just an @Int@ indicating the length of the sequence (or the size of the current chunk of the sequence; more on that below).
+The first two constructors deal with the unit type. This is something we didn't encounter in Chapter~\ref{chap:theory}. In short, the unit type (@()@) in a lifted context can just be represented by the lifting shape. There is only one possible unit type, so a collection of elements of that type can be represented by the shape of the collection. For a sequence, that context is just an @Int@ indicating the length of the sequence (or the size of the current chunk of the sequence; more on that below).
 
 The @AvoidedT@ constructor is equivalent to \lstinline[style=ndp]{Avoid_A}. In the array language strata of Accelerate (@Acc@), scalar values do not occur so \lstinline[style=ndp]{Avoid_S} is not needed.
 
-@RegularT@ and @IrregularT@ are equivalent to @Regular@ and @Irregular@ respectively, but without being generalised over tuples. For the regular case, we simply add the lifting context to the dimensionality of the array. This is equivalent to \lstinline[style=ndp]{ctx++sh} but @ctx@ in this case is just @Z:.Int@. For the irregular case, we have a slightly different notion of segment descriptors than before. The context is implicit in the construction. What this means is that @Segments (sh:.Int)@ in \ndp{} is equivalent to @Segments sh@ in Accelerate. The outer dimension is assumed to always be present.
+@RegularT@ and @IrregularT@ are equivalent to @Regular@ and @Irregular@ respectively, but without being generalised over tuples. For the regular case, we simply add the lifting shape to the dimensionality of the array. This is equivalent to \lstinline[style=ndp]{sh_l++sh} but @sh_l@ in this case is just @Z:.Int@. For the irregular case, we have a slightly different notion of segment descriptors than before. The lifting shape is implicit in the constructor. What this means is that @Segments (sh:.Int)@ in \ndp{} is equivalent to @Segments sh@ in Accelerate. The outer dimension is assumed to always be present.
 
 To correctly handle tuples, we have the @TupleT@ constructor. It captures the @IsProduct@ constraint on both the original type @t@ and the transformed type @t'@. In essence, it means they they are both products of which all components are members of the @Arrays@ type class. To specify the lifted type of each component in this product we use @LiftedTupleType@.
 %
@@ -266,22 +266,22 @@ With a concrete representation for segment descriptors, we are able to fully imp
 First we will consider the environment. Recall \ndp{}'s environment:
 %
 \begin{lstlisting}[style=ndp]
-data Env ctx Gamma Gamma_flat where
+data Env sh_l Gamma Gamma_flat where
   []    :: Env Z [] []
   (:)   :: Vect t t_flat                      -- standard free variable
-        -> Env ctx Gamma Gamma_flat
-        -> Env ctx (t : Gamma) (t_flat : Gamma_flat)
+        -> Env sh_l Gamma Gamma_flat
+        -> Env sh_l (t : Gamma) (t_flat : Gamma_flat)
   (:_R)  :: Shape sh                      -- regular flattening context
         => Expr Gamma_flat sh
-        -> Env ctx Gamma Gamma_flat
-        -> Env (ctx++sh) Gamma Gamma_flat
+        -> Env sh_l Gamma Gamma_flat
+        -> Env (sh_l++sh) Gamma Gamma_flat
   (:_Ir) :: Shape sh                      -- irregular flattening context
         -> Expr Gamma_flat (Segments sh)
-        -> Env ctx Gamma Gamma_flat
-        -> Env (ctx++sh) Gamma Gamma_flat
+        -> Env sh_l Gamma Gamma_flat
+        -> Env (sh_l++sh) Gamma Gamma_flat
 \end{lstlisting}
 %
-In Accelerate, we have the same structure. The main difference is that we don't making the lifting context explicit in the type.
+In Accelerate, we have the same structure. The main difference is that we don't making the lifting shape explicit in the type.
 %
 \begin{lstlisting}
 data Context acc aenv aenv' where
@@ -303,7 +303,7 @@ We also combine the different cons-like constructors into one with an additional
 The transform itself proceeds in much the same way as for \ndp{}. The result of the lifting transform, which in \ndp{} was
 %
 \begin{lstlisting}[style=ndp]
-exists t_flat. (Vect ctx t t_flat, Expr Gamma_flat t_flat)
+exists t_flat. (Vect sh_l t t_flat, Expr Gamma_flat t_flat)
 \end{lstlisting}
 %
 can be directly converted into this GADT.

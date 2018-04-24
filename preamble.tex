@@ -215,7 +215,8 @@
         {_N}{{$_\mathcal{N}$}}1
         {_V}{{$_\mathcal{V}$}}1
         {_seg}{{$_{seg}$}}3
-        {_NDP}{{$_{\text{NDP}}$}}3
+        {_NDP}{{$_{\textit{NDP}}$}}3
+        {_l}{{$_{\mathcal{L}}$}}1
         {.+}{{$\oplus$}}1
         {++}{{$\doubleplus$}}1
         {::=}{{$\Coloneqq$}}3
@@ -223,9 +224,14 @@
         {|-}{{$\vdash$}}1
  }
 
+\lstdefinestyle{ndp_inline}{%
+    style=ndp,
+    basicstyle=\ttfamily
+ }
+
 \lstset{style=haskell}
 
-\newcommand{\makeatcode}{\lstMakeShortInline[style=inline]@}
+\newcommand{\makeatcode}{\lstMakeShortInline[style=ndp_inline]@}
 \newcommand{\makeatchar}{\lstDeleteShortInline@}
 
 \newcommand{\inl}[1]{\lstinline[style=inline]{#1}}
