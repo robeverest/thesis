@@ -4,7 +4,7 @@
 To efficiently implement the sequence computations described in Chapter~\ref{chap:motivation}, there are many issues that need to be addressed. This chapter focuses on the most significant one: transforming nested, possibly irregular, data-parallelism into a form that can be efficiently executed on SIMD hardware. The solution not only allows for sequence computations, but, as we will show, actually solves the more general problem of efficient execution of nested arrays in a SIMD context. What distinguishes the approach presented here from others, is that we consider both regular and irregular computation, brought about by our desire to have efficient regular sequences as they have different needs with regard to their representation in memory. Concretely, in this Chapter we will:
 %
 \begin{itemize}
-\item Introduce the \ndp{} language. A simple calculus with arrays and parallel operations that operate over them (Section~\ref{sec:ndp}).
+\item Introduce \ndp{}: a simple language with arrays and parallel array operations (Section~\ref{sec:ndp}).
 \item Using \ndp{} as a basis, describe a novel generalisation of Blelloch's flattening transform that explicitly distinguishes between regular and irregular computations, to generate more efficient code for the former while still supporting the latter (Section~\ref{sec:flattening}).
 \end{itemize}
 
