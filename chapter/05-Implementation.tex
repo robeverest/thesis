@@ -393,7 +393,7 @@ This gives us something close to the segmented folds described in Section~\ref{s
 %
 \begin{lstlisting}
 segSizes :: Shape sh => Acc (Segments sh) -> Acc (Vector Int)
-segSizes (unlift -> (shapes, _, _)) = map ShapeSize shapes
+segSizes (unlift -> (shapes, _, _)) = map shapeSize shapes
 \end{lstlisting}
 %
 Then, we apply @foldSeg1D@ to the integral segments and the values vector. This gives us the values vector of the result, but we still need to compute the segment descriptors.
@@ -426,7 +426,7 @@ We do that with the following function.
 %
 \begin{lstlisting}
 foldSegments :: Shape sh => Acc (Segments (sh:.Int)) -> Acc (Segments sh)
-foldSegments (lift -> (shapes, _, _)) = segsFromShapes (map indexTail shapes)
+foldSegments (unlift -> (shapes, _, _)) = segsFromShapes (map indexTail shapes)
 \end{lstlisting}
 %
 Here, @segsFromShapes@ computes segment descriptors from a vector of shapes.
