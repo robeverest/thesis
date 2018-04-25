@@ -281,7 +281,7 @@ data Env sh_l Gamma Gamma_flat where
         -> Env (sh_l++sh) Gamma Gamma_flat
 \end{lstlisting}
 %
-In Accelerate, we have the same structure. The main difference is that we don't making the lifting shape explicit in the type.
+In Accelerate, we have the same structure. The main difference is that we don't make the lifting shape explicit in the type.
 %
 \begin{lstlisting}
 data Context acc aenv aenv' where
@@ -298,7 +298,7 @@ data Nesting acc aenv = NoNest
                       | forall sh. Shape sh => IrregularNest (acc aenv (Segments sh))
 \end{lstlisting}
 %
-We also combine the different cons-like constructors into one with an additional \emph{nesting indicator} that indicates whether this cons cell also captures nesting details. The @acc@ type parameter exists as a consequence of the \emph{tying the recursive knot} trick described in Section~\ref{sec:background-accelerate}.
+We also combine the different cons-like constructors into one with an additional \emph{nesting indicator} for to track nesting information. The @acc@ type parameter exists as a consequence of the \emph{tying the recursive knot} trick described in Section~\ref{sec:background-accelerate}.
 
 The transform itself proceeds in much the same way as for \ndp{}. The result of the lifting transform, which in \ndp{} was
 %
