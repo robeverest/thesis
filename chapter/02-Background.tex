@@ -1,7 +1,7 @@
 \chapter{Background}
 \label{chap:background}
 
-Before we explore the contributions of this work, we will first give a brief overview of the concepts it is built upon and the context in which it exists, as well as its dependent technologies. More specifically, we will describe:
+Before we explore the contributions of this work, we will first give a brief overview of the concepts it is built upon, the context in which it exists, and the technologies on which it depends. More specifically, we will describe:
 
 \begin{itemize}
   \item The Nested Data Parallel model of programming and the concept of program flattening, or vectorisation, that underlies it (\ref{sec:ndp}).
@@ -9,12 +9,12 @@ Before we explore the contributions of this work, we will first give a brief ove
   \item The Accelerate language and its implementation in Haskell (\ref{sec:background-accelerate}).
 \end{itemize}
 
-\section{The Nested Data Parallel Programming Model}
+\section{The Nested Data Parallel (NDP) programming model}
 \label{sec:ndp}
 
-The programming model of Nested Data Parallelism (NDP) is the most general form of data parallelism. It allows for arbitrary nesting of parallel operations within other parallel operations, as well as parallel structures which contain other parallel structures. For example, arrays of arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
+The Nested Data Parallel (NDP) programming model is the most general form of data parallelism. It allows for arbitrary nesting of parallel operations within other parallel operations, as well as parallel structures which contain other parallel structures. For example, arrays of arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
 
-Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in a number of different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, Manticore~\cite{Fluet:2007:manticore}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. In most\footnote{The exception to this is Manticore which has a execution model based on fork-join parallelism.} of these language this model of programming is achieved via a program transformation first described by \citet{Blelloch:compiling1988}. Originally, \nesl{} programs were intended to execution on vector computers. They are strictly SIMD in nature so a transform was needed that would remove nested parallel structures and nested parallel operations while preserving program behaviour. While computer hardware has changed considerably since the introduction of \nesl{}, the transform itself still has much utility.
+Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in a number of different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, Manticore~\cite{Fluet:2007:manticore}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. In most\footnote{The exception to this is Manticore which has a execution model based on fork-join parallelism.} of these languages this model of programming is achieved via a program transformation first described by \citet{Blelloch:compiling1988}. Originally, \nesl{} programs were intended to execute on vector computers. These were strictly SIMD in nature so a transform was needed that would remove nested parallel structures and nested parallel operations, while preserving program behaviour. While computer hardware has changed considerably since then, the transform itself still has much utility.
 
 % This first description of what shall now be referred to as Blelloch's Transform transformed from \plisp \citep{Sabot:paralation}, a version of lisp with simple parallel collections, to Scan-Vector Lisp, a subset of common lisp with a vector type. However, it was only possible to apply it to a subset of the source language and only to simple primitive types. Subsequently Scan-Vector Lisp was replaced with the intermediate language \vcode \citep{Blelloch:vcode1990}, a stack based data-parallel language.
 

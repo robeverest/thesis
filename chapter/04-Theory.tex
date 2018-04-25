@@ -363,7 +363,7 @@ intersect (Z:.1:.2) (Z:.2:.1) = Z:.1:.1
 
 % \paragraph{Empty shapes} An important design decision of array programs that support arbitrary rank arrays is how to treat empty arrays~\cite{Iverson:APL}. For \ndp{} we follow Accelerate and have a family of empty arrays. As an example, an array of shape @Z:.0:.3@ is considered different to an array of shape @Z:.3:.0@, despite neither of them actually containing any elements.
 
-\subsection{Array Indexing}
+\subsection{Array indexing}
 
 Arrays can be indexed by the bang (@!@) operator. As per the typing rule, shape of the array and the type of the index must match. For example, if @a@ is a matrix,
 %
@@ -462,7 +462,7 @@ Also, like in Accelerate, this is a multi-dimensional fold. It works over arrays
 % %
 % This operation is necessary for transforming conventional reductions in a nested context. We will describe this more in Section~\ref{sec:flattening}.
 
-\section{Segmented Arrays}
+\section{Segmented arrays}
 In addition to the core constructs of \ndp{}, we add constructs for operating with \emph{segment descriptors}. The rules for these are given in~\ref{fig:segmented-type-rules}. We treat @Segments@ as an abstract data type, giving no definition but requiring the given operations to work with it. To understand what it represents, we need to be more specific about what exactly the shape of an array is. Up until this point, we have said that the shape of an array is its dimensionality. However, another interpretation is that it is a mapping from a higher dimensional index into a position in a flat vector.
 
 When we have, an array @a@ such that
@@ -589,7 +589,7 @@ ix ++ ix' %$\in$% indices_seg (cross segs segs')
 There are a number of other operations for working with segment descriptors. We will introduce them where required in the next section.
 
 
-\section{Regularity Identifying Flattening}
+\section{Regularity-identifying flattening}
 \label{sec:flattening}
 
 With \ndp{} defined, we can now construct a flattening transform. This transform will use \ndp{} as its source language (minus the segmented operations) and also as the target language (including the segmented operations).

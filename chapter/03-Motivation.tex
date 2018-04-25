@@ -1,15 +1,17 @@
 \chapter{Sequences}
 \label{chap:motivation}
 
-In this chapter we will introduce \emph{irregular array sequences} as an extension to Accelerate. This extension adds to the expressiveness of Accelerate in a significant way, but requires both a new program transformation, described in Chapter~\ref{chap:theory} and other optimisations, described in Chapter~\ref{chap:implementation}.
+In this chapter we introduce \emph{irregular array sequences} as an extension to Accelerate. To understand the need for it, we must first explore the limitations present in the original Accelerate (Section~\ref{sec:limitations}) before moving onto describing the extension (Section~\ref{sec:sequences}).
+
+% This extension adds to the expressiveness of Accelerate in a significant way, but requires both a new program transformation, described in Chapter~\ref{chap:theory} and other optimisations, described in Chapter~\ref{chap:implementation}.
 
 % Before describing the core theory (Chapter \ref{chap:theory}) and the implementation (Chapter \ref{chap:implementation}) of our work, it is important to first address \emph{why} what we have done is useful. As discussed above, we propose that even a limited form of nesting allows for greater expressiveness of array programs. In addition, if that nesting is in the form of sequences of arrays we get the benefit of greater control of memory usage and the ability to automatically schedule out of core algorithms.
 
 % We will motive the work by presenting a simple API extension to Accelerate that adds sequences to the language. We will also show through a series of examples how this extension enables the writing of programs that either would have been hard to write in a modular way or not possible to write at all.
 
-\section{Limitations of Accelerate}
+\section{Limitations of array-based flat data parallelism}
 \label{sec:limitations}
-While flat data parallel array languages offer an expressive, high-level means of parallel programming, they are are not without limitations. In particular:
+While flat data parallel array languages, like Accelerate, offer an expressive, high-level means of parallel programming, they are are not without limitations. In particular:
 %
 \begin{enumerate}
 \item The reduction of modularity that results from strictly flat data-parallelism (\ref{sec:problem_1}).
@@ -109,7 +111,7 @@ Similar to this example, computations on irregular structures, such as sparse ma
 %    memory usage, which is historically a massive problem for flattening-based
 %    approaches.
 
-\subsection{Memory usage}
+\subsection{Memory Usage}
 \label{sec:problem_2}
 
 In addition to the loss of modularity, array-based programming languages like Accelerate suffer from another limitation. In particular, they are hampered by resource constraints, such as limited working memory. This is particularly problematic for compute accelerators such as GPUs, which have their own, usually much smaller, high-performance memory areas separate from the host's main memory%
