@@ -1187,7 +1187,7 @@ replicate_R (Tuple (r_1,..))  sh t | (r'_1, t_1) <- replicate_R r_0 sh (prj 1 t)
 replicate%$_{R->R}$% :: Expr Gamma sh
              %$\;$%-> Expr Gamma (Array (sh_l++sh_1) e_1, ...)
              %$\;$%-> Expr Gamma (Array (sh_l++sh++sh_1) e_1, ...)
-replicate%$_{R->R}$% sh arr = ( generate (inside sh' (extent (prj 1 arr))) (\ix -> prj 1 arr ! outside ix)
+replicate%$_{R->R}$% sh arr = ( generate (inside sh (extent (prj 1 arr))) (\ix -> prj 1 arr ! outside ix)
                        , ...)
 
 -- Replicate an irregular array under a regular context
