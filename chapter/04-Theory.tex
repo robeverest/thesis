@@ -1141,14 +1141,14 @@ Here we're constructing the lower triangle of a multiplication table. If we want
 \begin{lstlisting}[style=ndp]
 data Env sh_l Gamma Gamma_flat where
   []    :: Env Z [] []
-  (:)   :: Vect t t_flat                      -- standard free variable
+  (:)   :: Vect sh_l t t_flat                   -- standard free variable
         -> Env sh_l Gamma Gamma_flat
         -> Env sh_l (t : Gamma) (t_flat : Gamma_flat)
-  (:_R)  :: Shape sh                       -- regular flattening context
+  (:_R)  :: Shape sh                         -- regular flattening context
         => Expr Gamma_flat sh
         -> Env sh_l Gamma Gamma_flat
         -> Env (sh_l++sh) Gamma Gamma_flat
-  (:_Ir) :: Shape sh                       -- irregular flattening context
+  (:_Ir) :: Shape sh                         -- irregular flattening context
         -> Expr Gamma_flat (Segments sh)
         -> Env sh_l Gamma Gamma_flat
         -> Env (sh_l++sh) Gamma Gamma_flat
