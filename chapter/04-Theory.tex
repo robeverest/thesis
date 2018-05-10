@@ -1,18 +1,18 @@
 \chapter{Flattening}%
 \label{chap:theory}
 
-To efficiently implement the sequence computations described in Chapter~\ref{chap:motivation}, there are many issues that need to be addressed. This chapter focuses on the most significant one: transforming nested, possibly irregular, data-parallelism into a form that can be efficiently executed on SIMD hardware. The solution not only allows for sequence computations, but, as we will show, actually solves the more general problem of efficient execution of nested arrays in a SIMD context. What distinguishes the approach presented here from others, is that we consider both regular and irregular computation, brought about by our desire to have efficient regular sequences as they have different needs with regard to their representation in memory. Concretely, in this Chapter we will:
-%
-\begin{itemize}
-\item Introduce \ndp{}: a simple language with arrays and parallel array operations (Section~\ref{sec:ndp}).
-\item Using \ndp{} as a basis, describe a novel generalisation of Blelloch's flattening transform that explicitly distinguishes between regular and irregular computations, to generate more efficient code for the former while still supporting the latter (Section~\ref{sec:flattening}).
-\end{itemize}
+To efficiently implement the sequence computations described in the previous chapter, there are many issues that need to be addressed. This chapter focuses on the most significant one: transforming nested, possibly irregular, data-parallelism into a form that can be efficiently executed on SIMD hardware. We do this via a novel extension to program flattening, one that not only allows for sequence computations, but also solves the more general problem of efficient execution of nested arrays in a SIMD context. What distinguishes our flattening transform from others, is that we consider both regular and irregular computation, brought about by our desire to have efficient regular sequences as they have different needs with regard to their representation in memory.
 
-On the basis of the contents of this chapter, Chapter~\ref{chap:implementation} describes the concrete implementation in Accelerate.
+% To describe the transform we will firs
+% \item Introduce \ndp{}: a simple language with arrays and parallel array operations (Section~\ref{sec:ndp}).
+% \item Using \ndp{} as a basis, describe a novel generalisation of Blelloch's flattening transform that explicitly distinguishes between regular and irregular computations, to generate more efficient code for the former while still supporting the latter (Section~\ref{sec:flattening}).
+% \end{itemize}
 
-\section{Introduction}
+% On the basis of the contents of this chapter, Chapter~\ref{chap:implementation} describes the concrete implementation in Accelerate.
 
-In Chapter~\ref{chap:background} we described the nested data-parallel model of programming. Research in languages supporting this model have, primarily, focused on the problem of executing them on SIMD hardware. Here, we will build upon this research, not only to apply it to our streaming array language domain, but we will also describe a more general extension that recognises inherent differences between regular and irregular array programs.
+% \section{Introduction}
+
+% In Chapter~\ref{chap:background} we described the nested data-parallel model of programming. Research in languages supporting this model have, primarily, focused on the problem of executing them on SIMD hardware. Here, we will build upon this research, not only to apply it to our streaming array language domain, but we will also describe a more general extension that recognises inherent differences between regular and irregular array programs.
 
 % At the core of this research is \citet{Blelloch:compiling1988}'s \emph{flattening transformation}. A transform that statically converts irregular, nested data-parallel code into flat data-parallel code operating on flat vectors (see Chapter~\ref{chap:background}).
 
@@ -20,7 +20,7 @@ In Chapter~\ref{chap:background} we described the nested data-parallel model of 
 
 \citet{Blelloch:compiling1988}'s original version of the flattening transformation was for a first-order language with built-in second-order combinators, \nesl{}, which makes it a good fit for Accelerate which has similar properties. Nevertheless, the original transformation has two severe shortcomings, which makes the generated code non-competitive: (1) it lifts code into vector space that ought to remain as is for best performance; and (2) it doesn't treat the important special case of operations on regular multi-dimensional arrays specially. We address point (1) by adapting the work on \emph{vectorisation avoidance}~\citep{Keller:avoidance}, and tackle point (2) with a generalisation of flattening that identifies regular (sub)computations and optimises for them. Moreover, this transformation is, in contrast to previous work, type-preserving. This is necessary for integration with Accelerate, which is built around a typed AST and is type preserving in all its compilation stages\cite{McDonell:2015:acc-llvm}. It also has the added benefit of statically guaranteeing that the transform we describe here produces type-correct programs.
 
-As a basis on which to describe the transform, we introduce a simple language which we call \ndp{}. For the sake of simplicity, the language has fewer parallel operations than Accelerate. However, it is also more general in that it supports arbitrarily nested parallel arrays, as the transformation truly is an extension of similar flattening approaches. The following section will describe \ndp{} in detail. The reader will recognise its similarity to Accelerate, but unlike Accelerate we will formally specify its syntax and type system.
+As a basis on which to describe the transform, we first introduce a simple language which we call \ndp{}(Section \ref{sec:ndp}. For the sake of simplicity, the language has fewer parallel operations than Accelerate. However, it is also more general in that it supports arbitrarily nested parallel arrays, as the transformation truly is an extension of similar flattening approaches. The reader will recognise its similarity to Accelerate, but unlike Accelerate we will formally specify its syntax and type system.
 
 \section{\ndp{}}
 

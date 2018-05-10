@@ -1,7 +1,7 @@
 \chapter{Sequences}
 \label{chap:motivation}
 
-In this chapter we introduce \emph{irregular array sequences} as an extension to Accelerate. To understand the need for it, we must first explore the limitations present in flat data parallelism (Section~\ref{sec:limitations}) before moving onto describing the extension (Section~\ref{sec:sequences}).
+In this chapter we introduce \emph{irregular array sequences} as an extension to Accelerate. This extension represents a novel way of overcoming the limitations of flat data parallelism. To justify it, we first explore these limitations in depth (Section~\ref{sec:limitations}) before describing the extension itself (Section~\ref{sec:sequences}).
 
 % This extension adds to the expressiveness of Accelerate in a significant way, but requires both a new program transformation, described in Chapter~\ref{chap:theory} and other optimisations, described in Chapter~\ref{chap:implementation}.
 
@@ -11,13 +11,7 @@ In this chapter we introduce \emph{irregular array sequences} as an extension to
 
 \section{Limitations of array-based flat data parallelism}
 \label{sec:limitations}
-While flat data parallel array languages, like Accelerate, offer an expressive, high-level means of parallel programming, they are are not without limitations. In particular:
-%
-\begin{enumerate}
-\item The reduction of modularity that results from strictly flat data-parallelism (\ref{sec:problem_1}).
-\item The memory usage that arises from the inherent random access nature of arrays (\ref{sec:problem_2}).
-\end{enumerate}
-%
+While flat data parallel array languages, like Accelerate, offer an expressive, high-level means of parallel programming, they are not without drawbacks. In this work, we focus on two of the major ones. Firatly, the reduction of modularity that results from strictly flat data-parallelism (Section~\ref{sec:problem_1}), and, secondly, the memory usage that arises from the inherent random access nature of arrays (\ref{sec:problem_2}).
 
 \subsection{Modularity}
 \label{sec:problem_1}

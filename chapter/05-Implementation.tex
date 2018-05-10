@@ -1,14 +1,9 @@
 \chapter{Implementation and Optimisation}
 \label{chap:implementation}
 
-Now that we have a foundation for the flattening of programs in \ndp{}, we must explore what is required to implement it in the expressive, powerful, high-performance, and featureful array language, Accelerate. We will provide a high-level overview of the implementation. For more detailed information we refer to the publicly available implementation.\footnote{This is available at \url{https://github.com/AccelerateHS/accelerate/tree/feature/sequences}}
+While in the previous chapter we laid the foundation for our flattening transformation, to really demonstrate it's utility we must explore what is required to implement it in the expressive, powerful, high-performance array language, Accelerate. We will provide a high-level overview of the implementation. For more detailed information we refer to the publicly available implementation.\footnote{This is available at \url{https://github.com/AccelerateHS/accelerate/tree/feature/sequences}}
 
-In this chapter, we describe:
-\begin{itemize}
-\item How sequences fit into Accelerate's existing compiler infrastructure (Section~\ref{sec:seq-architecture}).
-\item Extensions to Accelerate's optimisation passes that help achieve competitive absolute performance for our sequence programs (Section~\ref{sec:Optimisation}).
-\item A dynamic scheduler for executing sequence computations (Section~\ref{sec:scheduling}).
-\end{itemize}
+We first address how sequences fit into Accelerate's existing compiler infrastructure (Section~\ref{sec:seq-architecture}), before describing the implementation of the transform itself (Section~\ref{sec:flatteing-impl}). However, doing just this is not sufficient to achieve competitive absolute performance for sequence programs, so we also describe extensions to Accelerate's optimisation passes (Section~\ref{sec:Optimisation}). Lastly, in order to execute sequence computation with the desired property of minimised memory usage, we require a dynamic scheduler (Section~\ref{sec:scheduling}).
 
 \section{Architecture}
 \label{sec:seq-architecture}
@@ -45,7 +40,7 @@ To support sequence computations, we both have to extend the AST with a set of s
 
 % \TODO{The sequences AST. This is gonna suck.}
 
-\section{What is a sequence?}
+\subsection{What is a sequence?}
 
 As introduced in Section~\ref{sec:sequences}, a sequence computation @Seq [Array sh b]@ adds a second level of nested, irregular data-parallelism on top of the flat regular parallelism of an array computation @Acc (Array sh b)@. Hence, we can generally regard such a sequence computation as a mapping of a flat, regular function @f@ over an irregular sequence @xs@:
 %

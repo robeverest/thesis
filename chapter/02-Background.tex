@@ -1,13 +1,17 @@
 \chapter{Background}
 \label{chap:background}
 
-Before we explore the contributions of this work, we will first give a brief overview of the concepts it is built upon, the context in which it exists, and the technologies on which it depends. More specifically, we will describe:
+While Accelerate itself is a flat data parallel language, it's design was strongly inspired by the Nested Data Parallel (NDP) model of programming, in particular the approach taken by \citet{Blelloch:compiling1988} involving program flattening or vectorisation. Furthermore, the sequence extension of Accelerate, which is one of the main topics of this thesis, brings Accelerate closer to that of a Nested Data Parallel language. Therefore, we will start with introducing the NDP programming model and the concept of program flattening (Section~\ref{sec:ndp}), before describing the Accelerate language and its implementation in Haskell (Section~\ref{sec:background-accelerate}).
 
-\begin{itemize}
-  \item The Nested Data Parallel model of programming and the concept of program flattening, or vectorisation, that underlies it (\ref{sec:ndp}).
-  \item The CUDA framework for general purpose GPU programming (\ref{sec:cuda}).
-  \item The Accelerate language and its implementation in Haskell (\ref{sec:background-accelerate}).
-\end{itemize}
+While Accelerate abstracts over concrete architectures, and has multiple backends, one that is of particular importance is the backend that targets Nvidia GPUs via the CUDA framework. The sequence extension provides a benefit to that backend, due to the memory limitations of GPUs, and we also introduce some other extensions specifically for it. Hence, we will give a brief overview of CUDA (Section~\ref{sec:cuda}).
+
+% Before we explore the contributions of this work, we will first give a brief overview of the concepts it is built upon, the context in which it exists, and the technologies on which it depends. More specifically, we will describe:
+
+% \begin{itemize}
+%   \item The Nested Data Parallel model of programming and the concept of program flattening, or vectorisation, that underlies it (\ref{sec:ndp}).
+%   \item The CUDA framework for general purpose GPU programming (\ref{sec:cuda}).
+%   \item The Accelerate language and its implementation in Haskell (\ref{sec:background-accelerate}).
+% \end{itemize}
 
 \section{The Nested Data Parallel (NDP) programming model}
 \label{sec:ndp}
@@ -254,46 +258,6 @@ Doing so results in many intermediate arrays. If vectorisation can be avoided fo
 %
 then it is not necessary to construct all the intermediate arrays. \citet{Keller:avoidance} describe a way of avoiding vectorisation by having a pre-vectorisation tagging phase tagging sub-computations that do not need to be vectorised. In Chapter~\ref{chap:theory} we will describe a different solution to vectorisation avoidance, but one that could be improved by taking ideas from \citet{Keller:avoidance}.
 
-\section{CUDA}
-\label{sec:cuda}
-
-The CUDA (Compute Unified Device Architecture)\cite{cuda} programming environment provides libraries and extensions to LLVM, C and C++, as well as Fortran. They enable programs to be written for and executed on NVIDIA GPUs.
-
-The Accelerate compiler I will describe in \ref{sec:background-accelerate} generates LLVM IR that is compiled by the CUDA framework. For the purposes of explanation, however, I will give examples in CUDA C as that is how the majority of programmers use the CUDA framework.
-
-Concretely, a C programmer wanting to take advantage of a CUDA capable GPU would annotate functions in their program with special directives indicating they are intended for GPU execution. When run through the \emph{nvcc} compiler any function annotated with these directives will be compiled into code in the Parallel Thread Execution (PTX) instruction set. These annotated functions, known as kernels, can be called with a special notation that specifies how they should be scheduled, in particular how many multiprocessors to use. The code in~\ref{lst:cuda} shows a simple example where two vectors of size $N$ are added together by $N$ threads.
-%
-\begin{lstlisting}[language=C, label=lst:cuda, caption={Adding two $N$ length vectors in CUDA C\citep{cuda}}]
-// Kernel definition
-__global__ void VecAdd(float* A, float* B, float* C)
-{
-    int i = threadIdx.x;
-    C[i] = A[i] + B[i];
-}
-
-int main()
-{
-    ...
-    // Kernel invocation with N threads
-    VecAdd<<<1, N>>>(A, B, C);
-    ...
-}
-\end{lstlisting}
-%
-This example corresponds to this simple Haskell function
-%
-\begin{lstlisting}
-vecAdd :: [Float] -> [Float] -> [Float]
-vecAdd = zipWith (+)
-\end{lstlisting}
-
-In general, it's fairly clear how trivially parallel programs, like those that just rely on @map@s and @zipWith@s, can be implemented in CUDA C. It is less clear however, how to map other high-level combinators (for example @fold@ and @scan@) to a corresponding GPU kernel. To do such things, the programmer has to concern themselves with the hierarchy of the GPU. Kernels are executed by threads in SIMD groups called warps arranged in thread blocks. Different threads in the same block can coordinate by fast shared memory, whereas threads in different blocks can only coordinate via the slower global memory. To further complicate the programmer's task, there are also issues of SIMD divergence and memory access patterns. All of these must be taken into account to achieve optimal performance.
-
-% \paragraph{Dynamic parallelism}
-% A particular feature of the CUDA programming model that is worth noting is \emph{dynamic parallelism}~\cite[Appendix D]{cuda}. Dynamic parallelism in this case being the ability to create and launch new kernels from within one that is already running. While at first glance this may appear to provide nested parallelism, it is not without limitations. There is an upper limit on the nesting depth of 24 and each new level of nesting requires an extra 150MB of device memory. While this would be suitable for algorithms that had a small fixed depth of nested parallelism, it would not work at all for algorithms like the Barnes-Hut algorithm for n-body simulation \citep{barnes:1986}. Such algorithms require dynamic trees where the parallel nesting depth is equivalent to the depth of the tree.
-
-The difficulties of directly programming through the low-level CUDA framework is what inspired many languages, compilers, and frameworks that try to lift the level abstraction. One of those is the Accelerate language and compiler. It allows for data parallel programming through collective array operations. We explore it in depth in Section~\ref{sec:background-accelerate}.
-
 \section{Accelerate}
 \label{sec:background-accelerate}
 
@@ -466,7 +430,7 @@ Other array and scalar operations we will introduce as the need arises.
 \subsection{Internals}
 \label{sec:acc-internals}
 
-The accelerate compilation pipeline has 4 major stages and uses two different syntax representations. The stages are:
+The Accelerate compilation pipeline has 4 major stages and uses two different syntax representations. The stages are:
 %
 \begin{itemize}
 %
@@ -486,7 +450,7 @@ The first of these stages we won't explore in detail, as it is not a concern of 
 
 The fusion and optimisation stage we will discuss in Chapter~\ref{chap:implementation} where we will build upon the previous work described in \citet{McDonell:acc-optim}.
 
-Code generation is not discussed in detail as it is not a focus of this work. See \citet{McDonell:2015:acc-llvm} for how LLVM is generated from th AST in Listing~\ref{lst:acc-ast}.
+Code generation is not discussed in detail as it is not a focus of this work. See \citet{McDonell:2015:acc-llvm} for how LLVM is generated from the AST in Listing~\ref{lst:acc-ast}.
 
 Execution will be covered in Chapter~\ref{chap:implementation} where we build upon the previous work\cite{McDonell:acc-optim,McDonell:2015:acc-llvm,Chakravarty:acc-cuda}.
 
@@ -627,6 +591,45 @@ data Tuple acc env aenv t where
 \end{lstlisting}
 %
 
+\section{CUDA}
+\label{sec:cuda}
+
+The CUDA (Compute Unified Device Architecture)\cite{cuda} programming environment provides libraries and extensions to LLVM, C and C++, as well as Fortran. They enable programs to be written for and executed on NVIDIA GPUs.
+
+The Accelerate compiler I described above has a backend that generates LLVM IR which is subsequently compiled by the CUDA framework. For the purposes of explanation, however, I will give examples in CUDA C as that is how the majority of programmers use CUDA.
+
+Concretely, a C programmer wanting to take advantage of a CUDA capable GPU would annotate functions in their program with special directives indicating they are intended for GPU execution. When run through the \emph{nvcc} compiler any function annotated with these directives will be compiled into code in the Parallel Thread Execution (PTX) instruction set. These annotated functions, known as kernels, can be called with a special notation that specifies how they should be scheduled, in particular how many multiprocessors to use. The code in~\ref{lst:cuda} shows a simple example where two vectors of size $N$ are added together by $N$ threads.
+%
+\begin{lstlisting}[language=C, label=lst:cuda, caption={Adding two $N$ length vectors in CUDA C\citep{cuda}}]
+// Kernel definition
+__global__ void VecAdd(float* A, float* B, float* C)
+{
+    int i = threadIdx.x;
+    C[i] = A[i] + B[i];
+}
+
+int main()
+{
+    ...
+    // Kernel invocation with N threads
+    VecAdd<<<1, N>>>(A, B, C);
+    ...
+}
+\end{lstlisting}
+%
+This example corresponds to this simple Haskell function
+%
+\begin{lstlisting}
+vecAdd :: [Float] -> [Float] -> [Float]
+vecAdd = zipWith (+)
+\end{lstlisting}
+
+In general, it's fairly clear how trivially parallel programs, like those that just rely on @map@s and @zipWith@s, can be implemented in CUDA C. It is less clear however, how to map other high-level combinators (for example @fold@ and @scan@) to a corresponding GPU kernel. To do such things, the programmer has to concern themselves with the hierarchy of the GPU. Kernels are executed by threads in SIMD groups called warps arranged in thread blocks. Different threads in the same block can coordinate by fast shared memory, whereas threads in different blocks can only coordinate via the slower global memory. To further complicate the programmer's task, there are also issues of SIMD divergence and memory access patterns. All of these must be taken into account to achieve optimal performance.
+
+% \paragraph{Dynamic parallelism}
+% A particular feature of the CUDA programming model that is worth noting is \emph{dynamic parallelism}~\cite[Appendix D]{cuda}. Dynamic parallelism in this case being the ability to create and launch new kernels from within one that is already running. While at first glance this may appear to provide nested parallelism, it is not without limitations. There is an upper limit on the nesting depth of 24 and each new level of nesting requires an extra 150MB of device memory. While this would be suitable for algorithms that had a small fixed depth of nested parallelism, it would not work at all for algorithms like the Barnes-Hut algorithm for n-body simulation \citep{barnes:1986}. Such algorithms require dynamic trees where the parallel nesting depth is equivalent to the depth of the tree.
+
+The difficulties of directly programming through the low-level CUDA framework is what inspired many languages, compilers, and frameworks that try to lift the level abstraction. This was and is the motivation for Accelerate.
 
 % \subsubsection{Simultaneous substitution}
 

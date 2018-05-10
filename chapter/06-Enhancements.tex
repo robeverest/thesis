@@ -1,12 +1,11 @@
 \chapter{Enhancements}
 \label{chap:enhancements}
 
-This chapter describes two additional extensions to the Accelerate language and runtime system which significantly improve the practical value of the Accelerate framework. They are:
-%
-\begin{itemize}
-\item A foreign function interface (FFI) supporting both importing foreign functions into Accelerate, and exporting Accelerate programs for access via conventional CUDA C/C++ programs. This is the first, to our knowledge, instance of an Embedded Domain Specific Language (EDSL) having a an FFI. (Section~\ref{sec:foreign})
-\item A GPU aware garbage collector. This is necessary for cases where the amount of data needed by the program exceeds the available GPU memory, but, whether by streaming or otherwise, the data is not needed all at once. For languages targeting GPUs, this is  a novel addition. (Section~\ref{sec:gpu-gc})
-\end{itemize}
+To further complement the sequences extension and flattening transformation described in this work, in this chapter we introduce an additional two extensions to the Accelerate language and runtime system. They significantly improve the practical value of the Accelerate framework, both for programs using sequences and those that do not.
+
+To take advantage of already highly-optimised CUDA libraries, we describe a foreign function interface (FFI) supporting both importing foreign functions into Accelerate, and exporting Accelerate programs for access via conventional CUDA C/C++ programs (Section~\ref{sec:foreign}). This is the first, to our knowledge, instance of an Embedded Domain Specific Language (EDSL) having a an FFI.
+
+To allow for programs that depend on more data than is available in GPU memory, but do not depend on it all at once, we also describe a GPU aware garbage collector (Section~\ref{sec:gpu-gc}).
 
 % \section{Type preserving transformations}
 % \TODO{Describe generalisation of McBride's technique}
