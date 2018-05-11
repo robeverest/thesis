@@ -3,7 +3,7 @@
 
 To further complement the sequences extension described in this work, in this chapter we introduce an additional two extensions to the Accelerate language and runtime system. They significantly improve the practical value of the Accelerate framework, both when using sequences and when not.
 
-To take advantage of already highly-optimised CUDA libraries from within Accelerate programs, we describe a foreign function interface (FFI) (Section~\ref{sec:foreign}). It supports both importing foreign functions into Accelerate and exporting Accelerate programs for access via conventional CUDA C/C++ programs. This is the first, to our knowledge, instance of an Embedded Domain Specific Language (EDSL) having a an FFI.
+To take advantage of already highly-optimised CUDA libraries from within Accelerate programs, we describe a foreign function interface (FFI) (Section~\ref{sec:foreign}). It supports both importing foreign functions into Accelerate and exporting Accelerate programs for access via conventional CUDA C/C++ programs. This is the first, to our knowledge, instance of an Embedded Domain Specific Language (EDSL) having an FFI.
 
 To allow for programs that depend on more data than fits in GPU memory, we also describe a GPU aware garbage collector (Section~\ref{sec:gpu-gc}). This allows for arrays to be automatically transferred out of GPU memory when not being used.
 
