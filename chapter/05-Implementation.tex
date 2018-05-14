@@ -1,9 +1,9 @@
 \chapter{Implementation and Optimisation}
 \label{chap:implementation}
 
-While in the previous chapter we laid the foundation for our flattening transformation, to really demonstrate it's utility we must explore what is required to implement it in the expressive, powerful, high-performance array language, Accelerate. We will provide a high-level overview of the implementation. For more detailed information we refer to the publicly available implementation.\footnote{This is available at \url{https://github.com/AccelerateHS/accelerate/tree/feature/sequences}}
+To demonstrate the utility of sequences we must explore what is required to implement them in the feature rich array language, Accelerate. We will provide a high-level overview of the implementation. For more detailed information we refer to the publicly available implementation.\footnote{This is available at \url{https://github.com/AccelerateHS/accelerate/tree/feature/sequences}}
 
-We first address how sequences fit into Accelerate's existing compiler infrastructure (Section~\ref{sec:seq-architecture}), before describing the implementation of the transform itself (Section~\ref{sec:flatteing-impl}). However, doing just this is not sufficient to achieve competitive absolute performance for sequence programs, so we also describe extensions to Accelerate's optimisation passes (Section~\ref{sec:Optimisation}). Lastly, in order to execute sequence computation with the desired property of minimised memory usage, we require a dynamic scheduler (Section~\ref{sec:scheduling}).
+We first address how sequences fit into Accelerate's existing compiler infrastructure (Section~\ref{sec:seq-architecture}), before describing the implementation of the flattening transform (Section~\ref{sec:flatteing-impl}). However, this alone is not sufficient to achieve competitive absolute performance for sequence programs, so we also describe extensions to Accelerate's optimisation passes (Section~\ref{sec:Optimisation}). Lastly, in order to execute sequence computation with the desired property of minimised memory usage, we require a dynamic scheduler (Section~\ref{sec:scheduling}).
 
 \section{Architecture}
 \label{sec:seq-architecture}
@@ -22,17 +22,17 @@ As discussed in Chapter~\ref{chap:background}, Accelerate has a fairly standard 
 \item \textbf{Execution} -- Schedules and executes the binaries on the target hardware.
 \end{itemize}
 
-To support sequence computations, we both have to extend the AST with a set of sequence combinators and change the pipeline to support them. The changes needed, at the high-level, are:
+To support sequence computations, we have to both extend the AST with a set of sequence combinators and change the pipeline to support them. The changes needed, at the high-level, are:
 %
 \begin{itemize}
 %
-\item An update sharing recovery to support the additional sequence AST constructors. This will not be explored in detail as it is not novel or different to how Accelerate handles other AST forms. See \citet{McDonell:acc-optim} for details on how sharing recovery works.
+\item An update to sharing recovery to support the additional sequence AST constructors. This will not be explored in detail as it is not novel or different to how Accelerate handles other AST forms. See \citet{McDonell:acc-optim} for details on how sharing recovery works.
 %
-\item An additional flattening stage after sharing recovery to flatten the computations embedded in sequence computations (Section~\ref{sec:flatteing-impl}).
+\item An additional flattening stage after sharing recovery to flatten the array computations embedded in sequence computations (Section~\ref{sec:flatteing-impl}).
 %
-\item A fusion system extension to exploit additional fusion opportunities presented by sequence computations (Section~\ref{sec:Optimisation}).
+\item An extension to the fusion system to exploit additional fusion opportunities presented by sequence computations (Section~\ref{sec:Optimisation}).
 %
-\item An additional runtime system component for scheduling sequence computations in a way where memory usage can be minimised while maximising utilisation (Section~\ref{sec:scheduling}).
+\item An additional runtime system component for scheduling sequence computations such that memory usage is minimised while processor utilisation is maximised (Section~\ref{sec:scheduling}).
 %
 \end{itemize}
 
@@ -136,7 +136,7 @@ data LiftedType t t' where
 %
 It is important to note that this structure is not parameterised by the lifting shape. This is because of the lack of deep nesting in Accelerate. As our only nested structure is the sequence, and sequences themselves cannot be nested, the only possible nested context is being an element of a sequence. Hence, we can represent all possible lifting shapes with an @Int@.
 
-The first two constructors deal with the unit type. This is something we didn't encounter in Chapter~\ref{chap:theory}. In short, the unit type (@()@) in a lifted context can just be represented by the lifting shape. There is only one possible unit type, so a collection of elements of that type can be represented by the shape of the collection. For a sequence, that context is just an @Int@ indicating the length of the sequence (or the size of the current chunk of the sequence; more on that below).
+The first two constructors deal with the unit type. This is something we didn't encounter in Chapter~\ref{chap:theory}. In short, the unit type (@()@) in a lifted context is represented by the lifting shape. There is only one possible unit type, so a collection of elements of that type is equivalent to the shape of that collection. For a sequence, that context is an @Int@ indicating the length of the sequence (or the size of the current chunk of the sequence; more on that below).
 
 The @AvoidedT@ constructor is equivalent to \lstinline[style=ndp]{Avoid_A}. In the array language strata of Accelerate (@Acc@), scalar values do not occur so \lstinline[style=ndp]{Avoid_S} is not needed.
 
@@ -153,7 +153,7 @@ data LiftedTupleType t t' where
             -> LiftedTupleType (t,a) (t',a')
 \end{lstlisting}
 %
-Recall from Section~\ref{sec:background-accelerate} that the way Accelerate uses representation types is that tuples are represented as left nested tuples.
+Recall from Section~\ref{sec:background-accelerate} that Accelerate uses representation types such that arbitrary tuples are flattened into left nested tuples.
 
 \subsection{Segment representation}
 
@@ -182,7 +182,7 @@ However, the best representation depends on precisely where the irregularity is.
 Segments_NDP (Z:.Int:.Int:.Int) = Vector (Z:.Int:.Int, Int)
 \end{lstlisting}
 %
-works as long as the 3D structure is a vector of 2D arrays. The final offset can be calculated like so
+works as long as the 3D structure is equivalent to a vector of regular 2D arrays. The final offset can be calculated like so
 %
 \begin{lstlisting}[style=ndp]
 (#) :: Segmments_NDP (Z:.Int:.Int:.Int) -> Z:.Int:.Int:.Int -> Int
@@ -190,7 +190,7 @@ segs # (Z:.z:.y:.x) = let (sh,off) = segs !! z
                       in off + toIndex sh (Z:.y:.x)
 \end{lstlisting}
 %
-This is the multidimensional equivalent of the size-offset representation in Chapter~\ref{chap:background}. This representation is of size $l$. Therefore it's space requirement is significantly less than the more general representation. Furthermore, implementing @(#)@ only requires a single indexing operation.
+This is the multidimensional equivalent of the size-offset representation in Chapter~\ref{chap:background}. This representation is of size $l$. Therefore, it's space requirement is significantly less than the more general representation. Furthermore, implementing @(#)@ only requires a single indexing operation.
 
 Returning to our concept of sequences, we see that we only need this second way of representing the segment descriptors. Sequences can only contain regular arrays, so we only have irregularity in the outer dimension. Therefore our definition for @Segments@ is
 %
@@ -198,13 +198,13 @@ Returning to our concept of sequences, we see that we only need this second way 
 Segments_NDP (sh:.Int) = Vector (sh, Int)
 \end{lstlisting}
 %
-For Accelerate, we make some small changes. Firstly, as we only ever have segment descriptors of dimension at least one, we can ignore that part of the parameter. Secondly, as shown in Section~\ref{sec:ndp}, there is benefit to storing the offsets alongside the extents. Lastly, we often need access to the total size of all segments. This can be calculated by taking the last offset and the size of the last shape and adding them together, but doing this calculation each time we need this value interferes with other optimisations. Hence, we store this value separately.
+For Accelerate, we make some small changes. Firstly, as noted above, we only ever have segment descriptors of dimension at least one, so we can ignore that part of the parameter. Secondly, as shown in Section~\ref{sec:ndp}, there is benefit to storing the offsets alongside the extents. Lastly, we often need access to the total size of all segments. This can be calculated by taking the last offset and the size of the last shape and adding them together, but doing this calculation each time we need this value interferes with other optimisations. Hence, we store this value separately.
 %
 \begin{lstlisting}[style=ndp]
-Segments sh = (Vector sh, Vector Int, Scalar Int)
+Segments sh = (Vector (sh, Int), Scalar Int)
 \end{lstlisting}
 %
-Our final definition is a vector containing the extent of each segment, another vector containing the offset of each segment, and an @Int@ representing the total size of all segments.
+Our final definition is a vector containing the extent and offset of each segment, and an @Int@ representing the total size of all segments.
 
 
 
@@ -258,7 +258,7 @@ Our final definition is a vector containing the extent of each segment, another 
 \subsection{Transformation}
 With a concrete representation for segment descriptors, we are able to fully implement the lifting transform in Accelerate.
 
-First we will consider the environment. Recall \ndp{}'s environment:
+Recall \ndp{}'s lifting environment:
 %
 \begin{lstlisting}[style=ndp]
 data Env sh_l Gamma Gamma_flat where
@@ -279,21 +279,21 @@ data Env sh_l Gamma Gamma_flat where
 In Accelerate, we have the same structure. The main difference is that we don't make the lifting shape explicit in the type.
 %
 \begin{lstlisting}
-data Context acc aenv aenv' where
-  BaseC     :: Context acc aenv aenv
+data Environment acc aenv aenv' where
+  BaseC     :: Environment acc aenv aenv
 
   PushC     :: Arrays t'
-            => Context acc aenv aenv'
+            => Environment acc aenv aenv'
             -> LiftedType t t'
             -> Nesting acc (aenv', t')
-            -> Context acc (aenv, t) (aenv', t')
+            -> Environment acc (aenv, t) (aenv', t')
 
 data Nesting acc aenv = NoNest
                       | RegularNest (acc aenv (Scalar Int))
                       | forall sh. Shape sh => IrregularNest (acc aenv (Segments sh))
 \end{lstlisting}
 %
-We also combine the different cons-like constructors into one with an additional \emph{nesting indicator} for to track nesting information. The @acc@ type parameter exists as a consequence of the \emph{tying the recursive knot} trick described in Section~\ref{sec:background-accelerate}.
+We also combine the different cons-like constructors into one with an additional \emph{nesting indicator} to track nesting information. The @acc@ type parameter exists as a consequence of the \emph{tying the recursive knot} trick described in Section~\ref{sec:background-accelerate}.
 
 The transform itself proceeds in much the same way as for \ndp{}. The result of the lifting transform, which in \ndp{} was
 %
@@ -344,9 +344,9 @@ generateSeg (unlift -> (shapes, offsets, totalSize)) f
     (unlift -> (a,b)) .+ (unlift -> (a',b')) = a == a' ? (lift (a, b+b'), lift (a',0))
 \end{lstlisting}
 %
-This definition may appear inefficient. This is true, and gives a further justification to a central point of this work: writing flattened arrays programs by hand is hard but recognising and taking advantage of regularity is also important.
+% This definition may appear complex for something so simple. This is true, and gives a further justification to a central point of this work: writing flattened arrays programs by hand is hard but recognising and taking advantage of regularity is also important.
 
-We first create a vector of pairs of the total size of the segmented array (@ones@). The first and second component of each pair are a $-1$ and a $1$ respectively. We use $-1$ here because this value needs to be outside the range of valid indices. We then create an indexed vector that is the same length as the offsets vector (@zeroes@). It contains the index of the element as the first component of each pair and 0 as the second. Using these two vectors, we then compute a vector of head flags (@heads@). This vector has a pair of (-1,1) at all positions except for those at the start of each segment where there is the number of the segment and a 0. We do this via @scatter@.
+We first create a vector of pairs of the sane length as the total size of the segmented array (@ones@). The first and second component of each pair are a $-1$ and a $1$ respectively. We use $-1$ here because this value needs to be outside the range of valid indices. We then create an indexed vector that is the same length as the offsets vector (@zeroes@). It contains the index of the element as the first component of each pair and 0 as the second. Using these two vectors, we then compute a vector of head flags (@heads@). This vector has a pair of (-1,1) at all positions except for those at the start of each segment where there is the number of the segment and a 0. We do this via @scatter@.
 %
 \begin{lstlisting}
 scatter :: Elt e
@@ -361,14 +361,14 @@ By performing a scan over this flags vector, we are able to construct the @indic
 \subsubsection{Folds}
 Accelerate has two non-segmented versions of fold, @fold@ and @fold1@. Both of these need flattened equivalents. Fortunately, this is simpler than flattening generate as Accelerate provides native @foldSeg@ and @foldSeg1@. We still have to do some work to get our input in the right form for these operations, but we do not have to fully implement it or make scheduling decisions in the process of flattening.
 
-Here is the type signature for @foldSeg@ in Accelerate.
+We will describe the segmented version of @fold@. Doing the same for @fold1@ is similar enough that we elide it. Here is the type signature for @foldSeg@ in Accelerate.
 %
 \begin{lstlisting}
 foldSeg :: (Shape sh, Elt a, Elt i, IsIntegral i)
-        => (Exp a -> Exp a -> Exp a)
-        -> Exp a
-        -> Acc (Array (sh:.Int) a)
-        -> Acc (Vector i)
+        => (Exp a -> Exp a -> Exp a)            -- The reduction function
+        -> Exp a                                -- The initial value
+        -> Acc (Array (sh:.Int) a)              -- The array to reduce
+        -> Acc (Vector i)                       -- Segment descriptors of the inner dimension
         -> Acc (Array (sh:.Int) a)
 \end{lstlisting}
 %
@@ -514,7 +514,7 @@ extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:
 
 \subsection{Array fusion}
 
-The core idea underlying the existing Accelerate array fusion system~\cite{McDonell:acc-optim} is well known: simply represent an array by its size and a function mapping indices to their corresponding values. Fusion then becomes an automatic property of the data representation. This method has been used successfully to optimise purely functional array programs in
+The core idea underlying the existing Accelerate array fusion system~\cite{McDonell:acc-optim} is well known: simply represent an array by its extent and a function mapping indices to their corresponding values. Fusion then becomes an automatic property of the data representation. This method has been used successfully to optimise purely functional array programs in
 Repa~\cite{Keller:Repa,Lippmeier:Guiding}, although the idea of representing arrays as functions is well known~\cite{Claessen:obsidian-expressive,Guibas:1978jh,Elliott:2003ug}.
 
 % The
@@ -536,8 +536,7 @@ However, a straightforward implementation of this approach results in a loss of 
 \begin{lstlisting}
 let xs = use (Array ...)
     ys = map f xs
-in
-zipWith g ys ys
+in zipWith g ys ys
 \end{lstlisting}
 %
 Every access to an element @ys@ will apply the (arbitrarily expensive) function @f@ to the corresponding element in @xs@. It follows that these computations will be done \emph{at least} twice, once for each argument in @g@, quite contrary to the programmer's intent. In the standard Accelerate fusion system, the solution to this problem is to not fuse terms, such as @ys@, whose results are used more than once.
@@ -577,13 +576,13 @@ we fuse it by a bottom up traversal. We must first \emph{delay} @xs@ into
 (shape xs, (xs !))
 \end{lstlisting}
 %
-Here we've created the mapping function with indexing and using the extent for the size. Proceeding up the AST, the @map (*2)@ can now be delayed by taking the delayed form of @xs@ and composing it with @*2@.
+The mapping function is just indexing @xs@. Proceeding up the AST, the @map (*2)@ can now be delayed by taking the delayed form of @xs@, composing it with @*2@ and doing some further simplification:
 %
 \begin{lstlisting}
 (shape xs, (\ix -> (xs ! ix)*2))
 \end{lstlisting}
 %
-In general, in arrays are represented in delayed form:
+In general, if arrays are represented in delayed form:
 %
 \begin{lstlisting}
 map f (sh, g) = (sh, f . g)
@@ -592,17 +591,17 @@ map f (sh, g) = (sh, f . g)
 We can then do the same with the @map (+1)@, giving us a final form of
 %
 \begin{lstlisting}
-\xs -> (shape xs, (\ix -> (xs ! ix)*2))
+\xs -> (shape xs, (\ix -> (xs ! ix)*2 + 1))
 \end{lstlisting}
-
+%
 This can be brought back into array form by turning the delayed array into a generate.
 %
 \begin{lstlisting}
-\xs -> generate (shape xs) (\ix -> (xs ! ix)*2)
+\xs -> generate (shape xs) (\ix -> (xs ! ix)*2 + 1)
 \end{lstlisting}
 %
 
-This process works for all producer combinators, however the conumer combinators (@fold@, @scanl@, etc.) cannot be delayed, so those must be left as \emph{manifest}: still introducing intermediate arrays.
+This process works for all producer combinators, however the consumer combinators (@fold@, @scanl@, etc.) cannot be delayed, so those must be left as \emph{manifest}: still introducing intermediate arrays.
 
 The other time intermediate arrays must be introduced, as already described, is when an array is accessed more than once. In Accelerate, this can only occur with let bindings. Looking at this example here,
 %
@@ -611,7 +610,7 @@ let a = generate sh f
 in map g a
 \end{lstlisting}
 %
-we see that it would be beneficial, and obvious, to embed (inline) the binding @a@ into the body to expose fusion opportunities there. In general though, that is not always desired, as highlighted above. So, when should we embed bindings like this? There are many possible measures that could be used, but we opt for a simple one. Accelerate inlines whenever a variable is only ``used" once. By ``used" here, we mean how often the variable occurs in the body of the let binding. We will extend this definition in the next section.
+we see that it would be simple, and of no obvious disadvantage if @g@ does not reference @a@, to embed (inline) the binding @a@ into the body to expose fusion opportunities there. In general though, that is not always desired, as highlighted above. So, when should we embed bindings like this? There are many possible measures that could be used, but we opt for a simple one. Accelerate inlines whenever a variable is only ``used" once. By ``used" here, we mean how often the variable occurs in the body of the let binding.
 
 There is an additional problem as well. Consider this term.
 %
@@ -632,7 +631,7 @@ However, by doing this, we've had to float the binding for @b@ outside of its pr
 
 \subsection{Fusion through tuples}
 
-Going back to our example.
+Going back to our original example:
 %
 \begin{lstlisting}
 let xs = use (Array ...)
@@ -641,23 +640,21 @@ in
 zipWith g (fst ys) (snd ys)
 \end{lstlisting}
 %
-Under the previous system, this wouldn't fuse, despite the fact that even though the tuple was ``used" twice each component of the tuple is only accessed once.
+Under the previous system, this wouldn't fuse, despite the tuple only being ``used'' once, each component of the tuple is only accessed once.
 
-By extending the concept of what it means for a binding to be used, we can enable terms like this to be fused. We simply need to keep a separate occurrence count for each component of a tuple.
-
-In the above example, that would let us see that even though @t@ occurs twice in the body, each component of @t@ is only ``used" once. Hence the binding can be embedded into the body using a specialised form of embedding that immediately simplifies when it encounters tuple projection. This results in
-%
-\begin{lstlisting}
-zipWith h (generate sh f) (generate sh' g)
-\end{lstlisting}
-%
-which can be fused using the rules described above. If we were to embed via conventional inlining, just replacing @ys@ with its definition at all use sites, we would end up with
+By extending the concept of what it means for a binding to be used, we can enable terms like this to be fused. We simply keep a separate occurrence count for each component of a tuple and embed bindings if no component is used more than once. However, if we were to embed via conventional substitution, just replacing @ys@ with its definition at all use sites, we would end up with
 %
 \begin{lstlisting}
 zipWith h (fst (generate sh f, generate sh' g)) (snd (generate sh f, generate sh' g))
 \end{lstlisting}
 %
-which, while still fusing after further simplification, is much larger than the original term. In general, simple inlining can cause an explosion in the size of the term, slowing down subsequent optimisation.
+which, while still fusing after further simplification, is much larger than the original term. In general, this can cause an explosion in the size of the term, slowing down subsequent optimisation. Hence, we instead use a specialised form of embedding that immediately simplifies when it encounters tuple projection. This results in
+%
+\begin{lstlisting}
+zipWith h (generate sh f) (generate sh' g)
+\end{lstlisting}
+%
+which can be fused using the rules described above.
 
 Let's now look at a more complicated example:
 %
@@ -667,7 +664,7 @@ in ( zipWith h (prj 1 t) (prj 3 t)
    , zipWith k (prj 3 t) (prj 2 t) )
 \end{lstlisting}
 %
-This brings up the question of what we should do when some components of a tuple are delayable (the @generate@) and are only used once, but others are either not delayable (the @scanl@) or occur multiple times (the @map@)? In this case we inline the first component of @t@ but leave the second and 3rd components bound.
+This brings up the question of what we should do when some components of a tuple are \emph{delayable} (the @generate@) and are only used once, but others are either not delayable (the @scanl@) or occur multiple times (the @map@)? In this case we inline the first component of @t@ but leave the second and 3rd components bound.
 %
 \begin{lstlisting}
 let t' = (scanl g 0 arr, map h arr)
@@ -699,9 +696,10 @@ Here we are floating @b@ out, possibly extending its lifetime. However, by doing
 
 While initially these fusion rules relating to tuples may seem to only work in specific situations, it is worth noting that they in fact stop tuples being a barrier to fusion in all cases: simply due to the restricted nature of the Accelerate language. The two key properties that make this happen are that:
 \begin{enumerate}
-\item Tuple constructors can only occur in a few places. In the argument to tuple projections, in let bindings and in other tuple constructors. None of the combinators take tuples as arguments.
-\item Unnecessary indirection of the form \lstinline[style=ndp]{let v_0 = v_n in c[v_0]} is eliminated during fusion as well.
+\item Tuple constructors can only occur in 3 places. In the argument to tuple projections, in let bindings and in other tuple constructors. None of the combinators take tuples as arguments.
+\item Unnecessary indirection of the form \lstinline[style=ndp]{let v_0 = v_n in c[v_0]} is eliminated prior to embedding and use counting.
 \end{enumerate}
+%
 We've already shown how tuple constructors in let bindings can be fused. The case where a tuple constructor is passed to tuple projection is trivial. The only remaining case is tuple constructors in other tuple constructors. For example,
 %
 \begin{lstlisting}
@@ -735,7 +733,7 @@ with @b@ now fused into the body.
 \section{Scheduling}
 \label{sec:scheduling}
 
-While we have described how sequences are implemented in the language and compiler, we are still left with the problem of deciding how many elements of a sequence we should compute at any one time. This problem was not the focus of this work, but is still necessary to enable efficient execution. One approach, as described in \citet{Madsen:2015}, is to analyse whole sequence computations and chose a static number based on an analysis of their parallel
+While we have described how sequences are implemented in the language and compiler, we are still left with the problem of deciding how many elements of a sequence we should compute at any one time. This problem is not the focus of this work, but is still necessary to enable efficient execution. One approach, as described in \citet{Madsen:2015}, is to analyse whole sequence computations and chose a static number based on an analysis of their parallel
 degree. While this works for regular computations, in the presence of
 irregularity, statically determining the parallel degree is not always feasible. In addition, where the size of individual elements may vary greatly, there is
 in general no good fixed static size. Hence, we use a dynamic scheduling
@@ -792,22 +790,22 @@ following strategy:
     the chunk size.
 
     In particular, the ability to decrease the chunk size is
-    necessary to deal sequences containing elements that grow in size.
+    necessary to handle sequences containing elements that grow in size.
     Additionally, this acts as a proxy to minimise usage of other system
     resource, such as memory.
 
-    If the processor is sufficiently utilised; i.e. above the minimum
-    threshold, we continue to increase the chunk size only if it yields a decrease
-    in the amount of time, on average, to process each element in the chunk. If
-    the time taken does not decrease, we decrease the chunk size. This last
-    part is necessary for sequences containing elements that grow in size.
+    % If the processor is sufficiently utilised; i.e. above the minimum
+    % threshold, we continue to increase the chunk size only if it yields a decrease
+    % in the amount of time, on average, to process each element in the chunk. If
+    % the time taken does not decrease, we decrease the chunk size. This last
+    % part is necessary for sequences containing elements that grow in size.
 
 \end{itemize}
 %
 As practical considerations, our implementation uses weighted moving averages of
 sampled variables, and increases the chunk size at twice the rate that we
 decrease it, which reduces warm-up time and biases towards ensuring the
-processors remains saturated.
+processors remain saturated.
 
 \endinput
 
