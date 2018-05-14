@@ -5,7 +5,7 @@ In this chapter we introduce two extensions to the Accelerate language and runti
 
 To take advantage of already highly-optimised CUDA libraries from within Accelerate programs, we describe a foreign function interface (FFI) (Section~\ref{sec:foreign}). It supports both importing foreign functions into Accelerate and exporting Accelerate programs for access via conventional CUDA C/C++ programs. This is the first, to our knowledge, instance of an Embedded Domain Specific Language (EDSL) having an FFI.
 
-To further widen the domain of programs that can practically be executed by Accelerate, we also describe a GPU aware garbage collector that automatically transfers arrays out of GPU memory when not being used (Section~\ref{sec:gpu-gc}). For certain classes of programs, this reduces the memory they require such that they can be executed with limited memory GPUs provide.
+To further widen the domain of programs that can practically be executed by Accelerate, we also describe a GPU aware garbage collector that automatically transfers arrays out of GPU memory when not being used (Section~\ref{sec:gpu-gc}). For certain classes of programs, this reduces the memory they require such that they can be executed with the limited memory GPUs provide.
 
 % \section{Type preserving transformations}
 % \TODO{Describe generalisation of McBride's technique}
