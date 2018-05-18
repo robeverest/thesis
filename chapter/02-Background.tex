@@ -259,6 +259,39 @@ Doing so results in many intermediate arrays. If vectorisation can be avoided fo
 %
 then it is not necessary to construct all the intermediate arrays. \citet{Keller:avoidance} describe a way of avoiding vectorisation by having a pre-vectorisation tagging phase tagging sub-computations that do not need to be vectorised. In Chapter~\ref{chap:theory} we will describe a different solution to vectorisation avoidance, but one that could be improved by taking ideas from \citet{Keller:avoidance}.
 
+\subsection{Fusion}
+\label{sec:fusion}
+
+Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the programs run time is spent reading and writing values to and from memory. This problem is not unique to flattened programs. In general, collection oriented languages by their very produce more intermediate structures than necessary.
+
+Fusion (or deforestation) attempts to alleviate this problem by combining adjacent transformations on structures in order to remove intermediate results. This has been studied extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
+
+For simple cases, fusion can be achieved by basic first-order term rewrites. For example, the rule
+%
+\begin{lstlisting}
+map f (map g) = map (f . g)
+\end{lstlisting}
+%
+removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings, which may obscure chains of @map@s, and there is no clear way to the intermediate structure from terms like
+%
+\begin{lstlisting}
+fold f z (map f xs)
+\end{lstlisting}
+%
+In this case, we need a more general approach.
+
+On such approach is simple and well known~\cite{Claessen:obsidian-expressive,Guibas:1978jh,Elliott:2003ug}: represent an array by its size and a function mapping indices to their corresponding values. Fusion then becomes an automatic property of the data representation. This method is used successfully to optimise purely functional array programs in Repa~\cite{Keller:Repa,Lippmeier:Guiding} and Accelerate.
+
+However, a straightforward implementation of this approach results in a loss of \emph{sharing}, which was a problem in early versions of Repa~\cite{Lippmeier:Guiding}. For example, consider the following program:
+%
+\begin{lstlisting}
+let xs = {...}
+    ys = map f xs
+in zipWith g ys ys
+\end{lstlisting}
+%
+Every access to an element @ys@ will apply the (arbitrarily expensive) function @f@ to the corresponding element in @xs@. It follows that these computations will be done \emph{at least} twice, once for each argument in @g@, quite contrary to the programmer's intent. Accelerate's solution to this problem is not to fuse such terms. However, this can prevent fusion in cases where it may actually be the most efficient choice. We will explore this problem in greater depth in Section~\ref{sec:Optimisation}.
+
 \section{Accelerate}
 \label{sec:background-accelerate}
 

@@ -478,11 +478,7 @@ We first compute a flags vector of the same length as the values vector. It cont
 \section{Fusion}
 \label{sec:Optimisation}
 
-While we have shown that it is possible to take our sequence programs with nesting and transform them so that the nesting is removed, doing so has introduced one particular performance problem. In the process of flattening, we introduce \emph{numerous} extra intermediate arrays. The na\"ive compilation of programs that contain so many intermediate arrays quickly drags down performance as much of the programs run time is spent reading and writing values to and from memory. Fusion
-(or deforestation) attempts to remove this overhead
-by combining adjacent transformations on data structures in order to remove
-intermediate results. This has been studied
-extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
+While we have shown that it is possible to take our sequence programs with nesting and transform them so that the nesting is removed, doing so has introduced a performance problem we first highlighted in Section~\ref{sec:fusion}. We introduce \emph{numerous} extra intermediate arrays in our version of the flattening transform.
 
 % \subsection{Sequence fusion}
 % \TODO{Redo? Even include? Update with stuff from new version of paper}
@@ -514,9 +510,6 @@ extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:
 
 \subsection{Array fusion}
 
-The core idea underlying the existing Accelerate array fusion system~\cite{McDonell:acc-optim} is well known: simply represent an array by its extent and a function mapping indices to their corresponding values. Fusion then becomes an automatic property of the data representation. This method has been used successfully to optimise purely functional array programs in
-Repa~\cite{Keller:Repa,Lippmeier:Guiding}, although the idea of representing arrays as functions is well known~\cite{Claessen:obsidian-expressive,Guibas:1978jh,Elliott:2003ug}.
-
 % The
 % process of array fusion then becomes one of composing these representation
 % functions.
@@ -531,7 +524,7 @@ Repa~\cite{Keller:Repa,Lippmeier:Guiding}, although the idea of representing arr
 %           in  map g xs
 % \end{lstlisting}
 
-However, a straightforward implementation of this approach results in a loss of \emph{sharing}, which was a problem in early versions of Repa~\cite{Lippmeier:Guiding}. For example, consider the following program:
+Recall that in Accelerate, fusion is achieved by representing arrays by their extent and function mapping indices to their values. As a consequence of that, in terms of the form
 %
 \begin{lstlisting}
 let xs = use (Array ...)
@@ -539,7 +532,7 @@ let xs = use (Array ...)
 in zipWith g ys ys
 \end{lstlisting}
 %
-Every access to an element @ys@ will apply the (arbitrarily expensive) function @f@ to the corresponding element in @xs@. It follows that these computations will be done \emph{at least} twice, once for each argument in @g@, quite contrary to the programmer's intent. In the standard Accelerate fusion system, the solution to this problem is to not fuse terms, such as @ys@, whose results are used more than once.
+@ys@ is not fused. That is because @ys@ is used twice, and if it were fused, the potentially expensive operation @f@ would be executed for each element of @xs@ twice.
 
 % The existing Accelerate fusion system is able to deal with such problems, where
 % let bindings would otherwise inhibit fusion. However, the system does not take
