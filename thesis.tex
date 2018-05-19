@@ -7,7 +7,10 @@
 \setlength{\pdfpageheight}{\paperheight}
 \setlength{\pdfpagewidth}{\paperwidth}
 
-\title{Streaming Irregular Arrays}
+\newcommand{\thesistitle}{Streaming Irregular Arrays}
+\input{title.tex}
+% \input{chapter/i-Submission.tex}
+% \input{chapter/ii-Originality.tex}
 
 \cleardoublepage
 \phantomsection
@@ -32,9 +35,15 @@
 \addcontentsline{toc}{chapter}{\listtablename}
 \listoftables\markboth{\listtablename}{\listtablename}
 
-\input{chapter/i-Abstract.tex}
+
+\input{chapter/iii-Abstract.tex}
+% \input{chapter/iv-Acknowledgements.tex}
+% \input{chapter/v-Publications.tex}
 
 \mainmatter
+
+\let\oldchapter\chapter
+\renewcommand{\chapter}[1]{\oldchapter{#1}\addthumb{#1}{}{white}{black}}
 
 \input{chapter/01-Introduction.tex}
 \input{chapter/02-Background.tex}
@@ -45,5 +54,14 @@
 \input{chapter/07-Results.tex}
 \input{chapter/08-Conclusion.tex}
 
+\cleardoublepage
+\stopthumb
+\backmatter
+\let\chapter\oldchapter
+
+\cleardoublepage
+\phantomsection
+\addcontentsline{toc}{chapter}{Bibliography}
 \bibliography{thesis}
+
 \end{document}
