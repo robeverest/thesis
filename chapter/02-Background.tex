@@ -1,9 +1,9 @@
 \chapter{Background}
 \label{chap:background}
 
-While Accelerate itself is a flat data parallel language, it's design was strongly inspired by the Nested Data Parallel (NDP) model of programming, in particular the approach taken by \citet{Blelloch:compiling1988} involving program flattening or vectorisation. Furthermore, the sequence extension of Accelerate, which is one of the main topics of this thesis, brings Accelerate closer to that of a Nested Data Parallel language. Therefore, we will start with introducing the NDP programming model and the concept of program flattening (Section~\ref{sec:ndp}), before describing the Accelerate language and its implementation in Haskell (Section~\ref{sec:background-accelerate}).
+While Accelerate itself is a flat data-parallel language, its design was strongly inspired by the Nested Data Parallel (NDP) model of programming, in particular, the approach taken by \citet{Blelloch:compiling1988} involving program flattening or vectorisation. Furthermore, the sequence extension of Accelerate, which is one of the main topics of this thesis, brings Accelerate closer to that of a Nested Data Parallel language. Therefore, we will start with introducing the NDP programming model and the concept of program flattening (Section~\ref{sec:ndp}), before describing the Accelerate language and its implementation in Haskell (Section~\ref{sec:background-accelerate}).
 
-While Accelerate abstracts over concrete architectures, and has multiple backends, one that is of particular importance is the backend that targets Nvidia GPUs via the CUDA framework. The sequence extension provides a benefit to that backend, due to the memory limitations of GPUs, and we also introduce some other extensions specifically for it. Hence, we will give a brief overview of CUDA (Section~\ref{sec:cuda}).
+While Accelerate abstracts over concrete architectures and has multiple backends, one that is of particular importance is the backend that targets Nvidia GPUs via the CUDA framework. The sequence extension provides a benefit to that backend, due to the memory limitations of GPUs, and we also introduce some other extensions specifically for it. Hence, we will also give a brief overview of CUDA (Section~\ref{sec:cuda}).
 
 % Before we explore the contributions of this work, we will first give a brief overview of the concepts it is built upon, the context in which it exists, and the technologies on which it depends. More specifically, we will describe:
 
@@ -18,12 +18,12 @@ While Accelerate abstracts over concrete architectures, and has multiple backend
 
 The Nested Data Parallel (NDP) programming model is the most general form of data parallelism. It allows for arbitrary nesting of parallel operations within other parallel operations, as well as parallel structures which contain other parallel structures. For example, arrays of arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
 
-Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in a number of different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, Manticore~\cite{Fluet:2007:manticore}, Lift~\cite{Steuwer:lift}, Copperhead~\cite{Catanzaro:copperhead}, Nikola~\cite{Mainland:nikola}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. These languages implement nested parallelism by a variety of means. Manticore has an execution model based on fork-join parallelism. Lift, Copperhead, and Nikola directly map nested parallel combinators to the parallel hierarchy of GPUs. The rest rely on a program transformation first described by \citet{Blelloch:compiling1988} that flattens nested parallel structures and operations, while preserving program behaviour. This technique is the one we use in our work, so will describe it here.
+Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in many different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, Manticore~\cite{Fluet:2007:manticore}, Lift~\cite{Steuwer:lift}, Copperhead~\cite{Catanzaro:copperhead}, Nikola~\cite{Mainland:nikola}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. These languages implement nested parallelism by a variety of means. Manticore has an execution model based on fork-join parallelism. Lift, Copperhead, and Nikola directly map nested parallel combinators to the parallel hierarchy of GPUs. The rest rely on a program transformation first described by \citet{Blelloch:compiling1988} that flattens nested parallel structures and operations while preserving program behaviour. This technique is the one we use in our work, so will describe it here.
 % Originally, \nesl{} programs were intended to execute on vector computers. These were strictly SIMD in nature so a transform was needed that would remove nested parallel structures and nested parallel operations, while preserving program behaviour. While computer hardware has changed considerably since then, the transform itself still has much utility.
 
 % This first description of what shall now be referred to as Blelloch's Transform transformed from \plisp \citep{Sabot:paralation}, a version of lisp with simple parallel collections, to Scan-Vector Lisp, a subset of common lisp with a vector type. However, it was only possible to apply it to a subset of the source language and only to simple primitive types. Subsequently Scan-Vector Lisp was replaced with the intermediate language \vcode \citep{Blelloch:vcode1990}, a stack based data-parallel language.
 
-Blelloch's Transform works by having two distinct components. The first being a \emph{flattened array representation}, the second program \emph{vectorisation}. We will address each of these in turn.
+Blelloch's Transform works by having two distinct components. The first being a \emph{flattened array representation}, the second, program \emph{flattening}. We will address each of these in turn.
 
 \subsection{Array representation}
 \label{sec:background-representation}
@@ -36,11 +36,11 @@ To give a simple example, suppose we have this nested array.
 { {A,B,C}, {D,E}, {F,G,H,I}, {}, {J} }
 \end{lstlisting}
 %
-It is an array of arrays. The immediately obvious way of representing this is to have an array of pointers. Indeed, most contemporary languages represent nested arrays in this way. Note that this is distinct from multidimensional arrays. While one can treat, say, a 2D array as an array of arrays, the fact that each \emph{subarray} has to be the same length does not make it a true nested array structure.
+It is an array of arrays. The immediately obvious way of representing this is with an array of pointers. Indeed, most contemporary languages represent nested arrays in this way. Note that this is distinct from multidimensional arrays. While one can treat, say, a 2D array as an array of arrays, the fact that each \emph{subarray} has to be the same length does not make it a true nested array structure.
 
-So if an array of pointers allows us to represent arbitrary nested array structures, what is the problem? It lies in the fact that modern computer hardware is optimised for locality of reference. Having different (often small) parts of the structure spread over memory with pointers between them means that any operations performed over them has to constantly chase pointers and access new areas of memory. This results in many cache misses and is unworkable in the context of high performance. In addition, allocating pointer-based structures involves numerous small allocations. This means construction and destruction is expensive, and, in the context of a garbage collector, longer GC pauses.
+So if an array of pointers allows us to represent arbitrary nested array structures, what is the problem? It lies in the fact that modern computer hardware is optimised for locality of reference. Having different (often small) parts of the structure spread over memory with pointers between them means that any operations performed over them have to continually chase pointers and access new areas of memory. This results in many cache misses and is unworkable in the context of high performance. In addition, allocating pointer-based structures involves numerous small allocations. This means construction and destruction is expensive, and, in the context of a garbage collector, longer GC pauses.
 
-An alternative solution to this problem, proposed by \citet{Blelloch:compiling1988}, is to \emph{flatten} the array structure. This means an array is split into a pair consisting of an array of \emph{segment descriptors} and an array of values. The example above is represented as:
+An alternative solution to this problem, proposed by \citet{Blelloch:compiling1988}, is to \emph{flatten} the array structure. With that representation, a nested array is split into a pair consisting of an array of \emph{segment descriptors} and an array of values. The example above is represented as:
 %
 \begin{lstlisting}
 ({3,2,4,0,1}, {A,B,C,D,E,F,G,H,I,J})
@@ -61,6 +61,7 @@ becomes,
 ({2,3}, ({2,1,2,0,1}, {A,B,C,D,E,F}))
 \end{lstlisting}
 
+
 % In addition to flattening nested arrays, arrays of tuples can be represented by tuples of arrays. This gives the the same benefits of locality as nested array flattening.
 
 The segment descriptors we have in both of these examples are what we will refer to as \emph{size segment descriptors}, as they hold the size of subarrays. However, they are somewhat limited. Many operations with arrays in this form have worse complexity than the pointer-based equivalent. In particular, indexing, one of the most basic array operations, is no longer constant time. For example, finding the element at index 3 of the subarray at index 2 of
@@ -79,7 +80,7 @@ There is another form of segment descriptor that solves this problem. Instead of
 %
 We will call these \emph{offset segment descriptors}. In general, it takes $O(1)$ work to index arrays in this form as we already know where the corresponding subarray is located in the values vector.
 
-Another useful operation, calculating the size of a given subarray, is similarly constant time. Simply take the offset of the subarray and subtract from the offset of the next subarray. However, this does not work for the final subarray and requires accessing two different elements of the segments array, which can be a problem for fusion (more on that in Chapter~\ref{chap:implementation}).
+Another useful operation, calculating the size of a given subarray, is similarly constant time. Merely take the offset of the subarray and subtract from the offset of the next subarray. However, this does not work for the final subarray and requires accessing two different elements of the segments array, which can be a problem for fusion (more on that in Chapter~\ref{chap:implementation}).
 
 Instead, the better choice is \emph{size-offset segment descriptors} where both the size and the offset are stored.
 %
@@ -91,11 +92,11 @@ This has the advantages of both representations, but does require twice as much 
 
 % The former can be translated into the latter by simply applying @scanl (+)@ to the segment descriptor.
 
-It is worth noting that there are other, more complex, nested array representations in existence. In particular \citet{Lippmeier:replicate} describe one that introduces the concept of \emph{virtual segments}. They allow for arrays to be replicated without explicitly storing them more than once. This problem arises when trying to support higher-order nested parallelism, when arrays are able to store functions as values. In the context of this work, we don't support higher order nested parallelism, so we won't explore it in detail.
+It is worth noting that there are other, more complex, nested array representations in existence. In particular \citet{Lippmeier:replicate} describe one that introduces the concept of \emph{virtual segments}. They allow for arrays to be replicated without explicitly storing them more than once. This problem arises when trying to support higher-order nested parallelism: when arrays can store functions as values. In the context of this work, we do not support higher-order nested parallelism, so we will not explore it in detail.
 
 \subsection{Flattening}
 
-Flattening, or vectorisation, is a syntax driven program transformation. When given a program as input it outputs a flat data parallel program which is semantically equivalent, but operates on a flattened array representation.
+Flattening, or vectorisation, is a syntax-driven program transformation. When given a program as input it outputs a flat data-parallel program which is semantically equivalent but operates on a flattened array representation.
 
 As an example, consider this simple program.
 %
@@ -110,7 +111,7 @@ foo' xs = let (segs, vals) = xs
           in (segs, map (\x -> 2*x + 1) vals)
 \end{lstlisting}
 %
-In this case, we're simply mapping $2x+1$ over the all the values in the nested array. It is trivial to see that @foo@ and @foo'@ are equivalent, modulo the data representation. Blelloch's flattening transformation is a method for producing these equivalent programs. It works by \emph{lifting} functions into vector space. That is, given some function
+In this case, we are simply mapping $2x+1$ over the all the values in the nested array. It is trivial to see that @foo@ and @foo'@ are equivalent, modulo the data representation. Blelloch's flattening transformation is a method for producing these equivalent programs. It works by \emph{lifting} functions into vector space. That is, given some function
 %
 \begin{lstlisting}
 f :: a -> b
@@ -122,7 +123,7 @@ it lifts it into the function
 f%$^\uparrow$% :: Vector a -> Vector b
 \end{lstlisting}
 %
-operating over vectors. Of course if @a@ or @b@ are already vectors~\footnote{In these examples, we're treating vectors and arrays as being the same thing. For now that is acceptable, but we will refine our definitions of both of these things in the following section.} then this function will be working over the nested representation of the now nested vectors.
+operating over vectors. Of course, if @a@ or @b@ are already vectors~\footnote{In these examples, we are treating vectors and arrays as being the same thing. For now, that is acceptable, but we will refine our definitions of both of these things in the following section.} then this function will be working over the nested representation of the now nested vectors.
 
 Going back to our example, if we will start by lifting the lambda term
 %
@@ -192,13 +193,13 @@ map f = Lift[|f|]
 %
 Using it we can rewrite programs with nested @map@s to remove any nesting.
 
-A similar approach can be taken for other array combinators. All that is required is to have a version of that combinator that can operate over the segmented representation. However, this is problematic for @fold@s. If we want a  parallel @fold@ that assumes its first argument is associative, what does its lifting rule look like?
+A similar approach can be taken for other array combinators. All that is required is to have a version of that combinator that can operate over the segmented representation. However, this is problematic for @fold@s. If we want a  parallel @fold@ that assumes its first argument is associative, we have to have this lifting rule:
 %
 \begin{lstlisting}[style=ndp]
 Lift[|fold f z arr|] = fold_seg f z Lift[|arr|]
 \end{lstlisting}
 %
-For this combinator, we do not lift the @f@ or @z@ arguments. What this means is that they cannot contain any nested parallelism. This is a common restriction on NDP languages.
+For this combinator, we do not lift the @f@ or @z@ arguments, meaning they cannot contain any nested parallelism. This is a common restriction on NDP languages.
 
 The combinator @fold_seg@ is a necessary one to support @fold@ in NDP languages. It performs a \emph{segmented} fold. It can be thought of as performing a fold for every subvector of a vector of vectors.
 %
@@ -262,9 +263,9 @@ then it is not necessary to construct all the intermediate arrays. \citet{Keller
 \subsection{Fusion}
 \label{sec:fusion}
 
-Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the programs run time is spent reading and writing values to and from memory. This problem is not unique to flattened programs. In general, collection oriented languages by their very produce more intermediate structures than necessary.
+Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the program's runtime is spent reading and writing values to and from memory. This problem is not unique to flattened programs. In general, collection-oriented languages by their very produce more intermediate structures than necessary.
 
-Fusion (or deforestation) attempts to alleviate this problem by combining adjacent transformations on structures in order to remove intermediate results. This has been studied extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
+Fusion (or deforestation) attempts to alleviate this problem by combining adjacent transformations on structures to remove intermediate results. This has been studied extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
 
 For simple cases, fusion can be achieved by basic first-order term rewrites. For example, the rule
 %
@@ -272,7 +273,7 @@ For simple cases, fusion can be achieved by basic first-order term rewrites. For
 map f (map g) = map (f . g)
 \end{lstlisting}
 %
-removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings, which may obscure chains of @map@s, and there is no clear way to the intermediate structure from terms like
+removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings, which may obscure chains of @map@s, and there is no clear way to the intermediate structure for terms of the form:
 %
 \begin{lstlisting}
 fold f z (map f xs)
@@ -302,7 +303,7 @@ As part of our work, we extend the array language \emph{Accelerate}. What follow
 
 Accelerate is a parallel array language consisting of a carefully selected set of operations (combinators) on multidimensional arrays, which can be compiled efficiently to bulk-parallel SIMD hardware. It is \emph{deeply embedded} in Haskell, meaning that we write Accelerate programs with (slightly stylised) Haskell syntax.
 
-Accelerate code embedded in Haskell is not compiled to SIMD code by the Haskell compiler; instead, the Accelerate library includes a \emph{runtime compiler} that generates parallel SIMD code at application runtime. Currently, there are two complete code-generation backends, one for multi-core CPUs and one for Nvidia GPUs. Both are able to share a significant code base owing to the fact they both work via LLVM.
+Accelerate code embedded in Haskell is not compiled to SIMD code by the Haskell compiler; instead, the Accelerate library includes a \emph{runtime compiler} that generates parallel SIMD code at application runtime. Currently, there are two complete code-generation backends, one for multi-core CPUs and one for Nvidia GPUs. Both share a significant code base owing to the fact they both work via LLVM.
 
 The collective operations in Accelerate are based on the scan-vector model~\citep{Chatterjee:1990vj,Sengupta:2007tc}, and consist of multi-dimensional variants of familiar Haskell list operations such as @map@ and @fold@, as well as array-specific operations such as index permutations.
 
@@ -313,9 +314,9 @@ dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
 dotp xs ys = fold (+) 0 ( zipWith (*) xs ys )
 \end{lstlisting}
 %
-The function @dotp@ consumes two Accelerate computations. The type @Acc a@ can be interpreted to mean an Accelerate computation producing an @a@. So, in this case, each of the argument computations produce a one-dimensional array (@Vector@) of @Float@ when evaluated. This function then returns a new computation which, when evaluated, yields a single (@Scalar@) result as output.
+The function @dotp@ consumes two Accelerate computations. The type @Acc a@ can be interpreted to mean an Accelerate computation producing an @a@. So, in this case, each of the argument computations produces a one-dimensional array (@Vector@) of @Float@ when evaluated. This function then returns a new computation which, when evaluated, yields a single (@Scalar@) result as output.
 
-The Accelerate code for @dotp@ is almost identical to what we would write in standard Haskell over lists, and is certainly more concise than an explicitly GPU-accelerated or SIMD-vectorized\footnote{That is, a program utilising the SSE/AVX instruction set extensions for x86 processors.} low-level dot-product, while still compiling to efficient code~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
+The Accelerate code for @dotp@ is almost identical to what we would write in standard Haskell over lists and is certainly more concise than an explicitly GPU-accelerated or SIMD-vectorized\footnote{That is, a program utilising the SSE/AVX instruction set extensions for x86 processors.} low-level dot-product, while still compiling to efficient code~\citep{Chakravarty:acc-cuda,McDonell:acc-optim,McDonell:2015:acc-llvm}.
 
 The functions @zipWith@ and @fold@ are defined by the Accelerate library and have \emph{highly parallel} semantics, supporting up to as many parallel threads as data elements. The type of @fold@ is:
 %
@@ -383,11 +384,11 @@ instance (Elt a, Elt b, Elt c, Elt d) => Elt (a,b,c,d)
 %
 In fact, @Elt@ is user extensible via representation types. We won't cover how that works in detail here, but the salient point is that @Elt@ is a truly open type class.
 
-The type signature for @fold@ also shows how Accelerate is stratified into two different levels. We've already seen collective \emph{array computations}, represented by terms of the type @Acc t@, but there is also \emph{scalar expressions}, represented by terms of type @Exp t@. More concretely, values of type @Acc t@ and @Exp t@ do not execute computations directly, rather they represent abstract syntax trees (ASTs) constituting a computation that, once executed, will yield a value of type @t@. Collective operations comprise many scalar operations which are executed in data-parallel, but scalar operations \emph{cannot} initiate collective operations. This stratification helps to statically exclude nested parallelism. We will explore in more detail what this restriction means for modularity in Chapter~\ref{chap:motivation}.
+The type signature for @fold@ also shows how Accelerate is stratified into two different levels. We have already seen collective \emph{array computations}, represented by terms of the type @Acc t@, but there is also \emph{scalar expressions}, represented by terms of type @Exp t@. More concretely, values of type @Acc t@ and @Exp t@ do not execute computations directly, rather they represent abstract syntax trees (ASTs) constituting a computation that, once executed, will yield a value of type @t@. Collective operations comprise many scalar operations which are executed in data-parallel, but scalar operations \emph{cannot} initiate collective operations. This stratification helps to statically exclude nested parallelism. We will explore in more detail what this restriction means for modularity in Chapter~\ref{chap:motivation}.
 
 \subsubsection{Operations}
 
-Accelerate offers a number of different array operations. We'll give a brief overview of the key ones here.
+Accelerate offers many different array operations. We give a brief overview of the key ones here.
 
 @map@ and @zipWith@ behave in much the same way as those same operations over lists. For multidimensional arrays @zipWith@ yields an array of the minimum shape of all dimensions in the array. For example, if array @a@ has extent
 %
@@ -446,7 +447,7 @@ unlift :: Exp (e_1, e_2, ..., e_n)         -> (Exp e_1, Exp e_2, ..., Exp e_n)
 \end{lstlisting}
 %
 
-Various different forms of prefix sum (scan) are supported. One of the main ones is, @scanl@, for performing a left scan.
+Various forms of prefix sum (scan) are supported. One of the main ones is, @scanl@, for performing a left scan.
 %
 \begin{lstlisting}
 scanl :: (Shape sh, Elt e)
@@ -468,7 +469,7 @@ The Accelerate compilation pipeline has 4 major stages and uses two different sy
 %
 \begin{itemize}
 %
-\item Sharing recovery -- Converts the higher order abstract syntax (HOAS) into first order syntax with De Bruijn indices and also recovers sharing.
+\item Sharing recovery -- Converts the higher-order abstract syntax (HOAS) into first-order syntax with De Bruijn indices and also recovers sharing.
 %
 % \item Segment rewriting -- If necessary, will rewrite explicit segment operations such that segment descriptors are converted into the right format. This will be covered in more depth below. For now, it is just another compilation stage.
 %
@@ -490,7 +491,7 @@ Execution will be covered in Chapter~\ref{chap:implementation} where we build up
 
 \subsubsection{Abstract Syntax Tree}
 
-The abstract syntax tree for the core Accelerate syntax is given in \ref{lst:acc-ast} for the @Acc@ strata and \ref{lst:exp-ast} for the @Exp@ strata. These ASTs are all parameterised by the recursive step @acc@.
+The abstract syntax tree for the core Accelerate syntax is given in \ref{lst:acc-ast} for the @Acc@ stratum and \ref{lst:exp-ast} for @Exp@. These ASTs are all parameterised by the recursive step @acc@.
 
 \begin{aside}
 \begin{center}
@@ -520,7 +521,7 @@ data Idx env a where
 \end{lstlisting}
 %
 
-We can see the relation between the @Exp@ and @Acc@ stratas by looking at the definition of the @Generate@ constructor, and expanding the type synonyms within it
+We can see the relation between the @Exp@ and @Acc@ strata by looking at the definition of the @Generate@ constructor and expanding the type synonyms within it
 %
 \begin{lstlisting}
   Generate :: (Elt e, Shape sh)
@@ -630,9 +631,9 @@ data Tuple acc env aenv t where
 
 The CUDA (Compute Unified Device Architecture)\cite{cuda} programming environment provides libraries and extensions to LLVM, C and C++, as well as Fortran. They enable programs to be written for and executed on NVIDIA GPUs.
 
-The Accelerate compiler I described above has a backend that generates LLVM IR which is subsequently compiled by the CUDA framework. For the purposes of explanation, however, I will give examples in CUDA C as that is how the majority of programmers use CUDA.
+The Accelerate compiler I described above has a backend that generates LLVM IR which is subsequently compiled by the CUDA framework. For explanation, however, examples are given in CUDA C as that is how the majority of programmers use CUDA.
 
-Concretely, a C programmer wanting to take advantage of a CUDA capable GPU would annotate functions in their program with special directives indicating they are intended for GPU execution. When run through the \emph{nvcc} compiler any function annotated with these directives will be compiled into code in the Parallel Thread Execution (PTX) instruction set. These annotated functions, known as kernels, can be called with a special notation that specifies how they should be scheduled, in particular how many multiprocessors to use. The code in~\ref{lst:cuda} shows a simple example where two vectors of size $N$ are added together by $N$ threads.
+Concretely, a C programmer wanting to take advantage of a CUDA capable GPU would annotate functions in their program with special directives indicating they are intended for GPU execution. When run through the \emph{nvcc} compiler any function annotated with these directives will be compiled into code in the Parallel Thread Execution (PTX) instruction set. These annotated functions, known as kernels, can be called with a special notation that specifies how they should be scheduled, in particular, how many multiprocessors to use. The code in~\ref{lst:cuda} shows a simple example where two vectors of size $N$ are added together by $N$ threads.
 %
 \begin{lstlisting}[language=C, label=lst:cuda, caption={Adding two $N$ length vectors in CUDA C\citep{cuda}}]
 // Kernel definition
@@ -658,12 +659,12 @@ vecAdd :: [Float] -> [Float] -> [Float]
 vecAdd = zipWith (+)
 \end{lstlisting}
 
-In general, it's fairly clear how trivially parallel programs, like those that just rely on @map@s and @zipWith@s, can be implemented in CUDA C. It is less clear however, how to map other high-level combinators (for example @fold@ and @scan@) to a corresponding GPU kernel. To do such things, the programmer has to concern themselves with the hierarchy of the GPU. Kernels are executed by threads in SIMD groups called warps arranged in thread blocks. Different threads in the same block can coordinate by fast shared memory, whereas threads in different blocks can only coordinate via the slower global memory. To further complicate the programmer's task, there are also issues of SIMD divergence and memory access patterns. All of these must be taken into account to achieve optimal performance.
+In general, it is reasonably clear how trivially parallel programs, like those that only rely on @map@s and @zipWith@s, can be implemented in CUDA C. It is less clear, however, how to map other high-level combinators (for example @fold@ and @scan@) to a corresponding GPU kernel. To do such things, the programmer has to concern themselves with the hierarchy of the GPU. Kernels are executed by threads in SIMD groups called warps arranged in thread blocks. Different threads in the same block can coordinate by fast shared memory, whereas threads in different blocks can only coordinate via the slower global memory. To further complicate the programmer's task, there are also issues of SIMD divergence and memory access patterns. All of these must be taken into account to achieve optimal performance.
 
 % \paragraph{Dynamic parallelism}
 % A particular feature of the CUDA programming model that is worth noting is \emph{dynamic parallelism}~\cite[Appendix D]{cuda}. Dynamic parallelism in this case being the ability to create and launch new kernels from within one that is already running. While at first glance this may appear to provide nested parallelism, it is not without limitations. There is an upper limit on the nesting depth of 24 and each new level of nesting requires an extra 150MB of device memory. While this would be suitable for algorithms that had a small fixed depth of nested parallelism, it would not work at all for algorithms like the Barnes-Hut algorithm for n-body simulation \citep{barnes:1986}. Such algorithms require dynamic trees where the parallel nesting depth is equivalent to the depth of the tree.
 
-The difficulties of directly programming through the low-level CUDA framework is what inspired many languages, compilers, and frameworks that try to lift the level abstraction. This was and is the motivation for Accelerate.
+The difficulties of directly programming through the low-level CUDA framework is what inspired many languages, compilers, and frameworks that try to lift the level of abstraction. This was and is the motivation for Accelerate.
 
 % \subsubsection{Simultaneous substitution}
 

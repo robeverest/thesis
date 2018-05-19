@@ -1,7 +1,7 @@
 \chapter{Flattening}%
 \label{chap:theory}
 
-To efficiently implement the sequence computations described in the previous chapter, there are many issues that need to be addressed. This chapter focuses on the most significant one: transforming nested, possibly irregular, data-parallelism into a form that can be efficiently executed on SIMD hardware. We do this via a novel extension to program flattening, one that not only allows for sequence computations, but also solves the more general problem of efficient execution of nested arrays in a SIMD context. What distinguishes our flattening transform from others, is that we consider both regular and irregular computation, brought about by our desire to have efficient regular sequences as they have different needs with regard to their representation in memory.
+To efficiently implement the sequence computations described in the previous chapter many issues need to be addressed. This chapter focuses on the most significant one: transforming nested, possibly irregular, data-parallelism into a form that can be efficiently executed on SIMD hardware. We do this via a novel extension to program flattening, one that not only allows for sequence computations but also solves the more general problem of efficient execution of nested arrays in a SIMD context. What distinguishes our flattening transform from others, is that we consider both regular and irregular computation, brought about by our desire to have efficient regular sequences as they have different needs with regard to their representation in memory.
 
 % To describe the transform we will firs
 % \item Introduce \ndp{}: a simple language with arrays and parallel array operations (Section~\ref{sec:ndp}).
@@ -18,9 +18,9 @@ To efficiently implement the sequence computations described in the previous cha
 
 % \paragraph{A note on terminology:} To prevent any confusion with the Accelerate concept of @Vector@ we will refer to this transformation as flattening, as opposed to vectorisation, in this chapter.
 
-\citet{Blelloch:compiling1988}'s original version of the flattening transformation was for a first-order language with built-in second-order combinators, \nesl{}, which makes it a good fit for Accelerate which has similar properties. Nevertheless, the original transformation has two severe shortcomings, which makes the generated code non-competitive: (1) it lifts code into vector space that ought to remain as is for best performance; and (2) it doesn't treat the important special case of operations on regular multi-dimensional arrays specially. We address point (1) by adapting the work on \emph{vectorisation avoidance}~\citep{Keller:avoidance}, and tackle point (2) with a generalisation of flattening that identifies regular (sub)computations and optimises for them. Moreover, this transformation is, in contrast to previous work, type-preserving. This is necessary for integration with Accelerate, which is built around a typed AST and is type preserving in all its compilation stages~\cite{McDonell:2015:acc-llvm}. It has the added benefit of statically guaranteeing that the transform we describe here produces type-correct programs.
+\citet{Blelloch:compiling1988}'s original version of the flattening transformation was for a first-order language with built-in second-order combinators, \nesl{}, which makes it a good fit for Accelerate which has similar properties. Nevertheless, the original transformation has two severe shortcomings, which makes the generated code non-competitive: (1) it lifts code into vector space that ought to remain as is for best performance; and (2) it does not treat the important special case of operations on regular multi-dimensional arrays specially. We address point (1) by adapting the work on \emph{vectorisation avoidance}~\citep{Keller:avoidance}, and tackle point (2) with a generalisation of flattening that identifies regular (sub)computations and optimises for them. Moreover, this transformation is, in contrast to previous work, type-preserving. This is necessary for integration with Accelerate, which is built around a typed AST and is type preserving in all its compilation stages~\cite{McDonell:2015:acc-llvm}. It has the added benefit of statically guaranteeing that the transform we describe here produces type-correct programs.
 
-As a basis on which to describe the transform, we first introduce a simple language which we call \ndp{} (Section \ref{sec:ndp}). For the sake of simplicity, the language has fewer parallel operations than Accelerate. However, it is also more general in that it supports arbitrarily nested parallel arrays, as the transformation truly is an extension of similar flattening approaches. The reader will recognise its similarity to Accelerate, but unlike Accelerate we will formally specify its syntax and type system. Following that, we describe a our new flattening transformation in terms of \ndp{}, using it as both the source and target language (Section~\ref{sec:flattening}).
+As a basis on which to describe the transform, we first introduce a simple language which we call \ndp{} (Section \ref{sec:ndp}). For the sake of simplicity, the language has fewer parallel operations than Accelerate. However, it is also more general in that it supports arbitrarily nested parallel arrays, as the transformation truly is an extension of similar flattening approaches. The reader will recognise its similarity to Accelerate, but unlike Accelerate we will formally specify its syntax and type system. Following that, we describe our new flattening transformation in terms of \ndp{}, using it as both the source and target language (Section~\ref{sec:flattening}).
 
 \section{\ndp{}}
 
@@ -212,7 +212,7 @@ Before introducing the precise syntax, let us have a look at the high-level prop
 \begin{itemize}
 \item \textbf{Parallel arrays}: All parallelism is specified with multi-dimensional arrays and data parallel combinators that operate over them. The arrays are immutable, thus avoiding the possibility of race conditions and impurity.
 \item \textbf{Non-array values}: Not every value in \ndp{} is an array. This is in contrast to the APL family of languages\cite{Iverson:APL} but corresponds with Accelerate.
-\item \textbf{Strictness}: As in Accelerate, let bindings and array elements are strict. Despite being embedded in the non-strict meta language of Haskell, Accelerate is itself wholly strict. We are not concerned with lazy arrays.
+\item \textbf{Strictness}: As in Accelerate, let bindings and array elements are strict. Despite being embedded in the non-strict meta-language of Haskell, Accelerate is itself wholly strict. We are not concerned with lazy arrays.
 %The language is not functional, so the strictness of function application need not be specified, but things which are application like (e.g. mapping over an array) should be viewed as strict also.
 % \item \textbf{No conditional execution}: There is no @if@ or short-circuiting boolean operations in \ndp{}. This is in contrast to Accelerate, which supports both of these things. They are left out of this language to simplify explanation. Their addition does add extra complexity to the transformation, but does not affect programs without them.
 \end{itemize}
@@ -233,9 +233,9 @@ let v_0 = A in
     (v_0 + v_1) / 2
 \end{lstlisting}
 %
-Here, we're calculating average of @A@ and @B@. Note that while @v_0@ is bound at the outermost let binding, inside the body of the inner binding it is referred to via @v_1@.
+Here, we're calculating the average of @A@ and @B@. Note that while @v_0@ is bound at the outermost let binding, inside the body of the inner binding it is referred to via @v_1@.
 
-Note that there is no general lambda term in the definition of \ndp{} and hence no ability to abstract over functions. While there exists the second order operations @generate@ and @fold@ that appear to take functions as arguments, this is just syntax. The only places lambdas occur is in the arguments to these operations. This first order nature may appear a burdensome restriction for the language, but as is indicated by NESL\cite{Blelloch:nesl1995}, even first order array languages can express useful examples. Also by embedding a first order language in a higher order meta language we can recover a lot of the expressiveness. Accelerate itself is a good example of this.
+Note that there is no general lambda term in the definition of \ndp{} and hence no ability to abstract over functions. While there exists the second order operations @generate@ and @fold@ that appear to take functions as arguments, this is just syntax. The only places lambdas occur is in the arguments to these operations. This first order nature may appear a burdensome restriction for the language, but as is indicated by NESL\cite{Blelloch:nesl1995}, even first-order array languages can express useful examples. Also by embedding a first-order language in a higher order meta-language, we can recover a lot of the expressiveness. Accelerate itself is a good example of this.
 
 \subsection{Tuples}
 Tuples of arbitrary arity are supported in \ndp{}. They are constructed with the familiar notation of comma separated values wrapped in parens. To be precise about our terminology, we will use the Accelerate convention of referring to tuples as scalar if they contain other scalar values. For example,
@@ -258,7 +258,7 @@ is an array of scalar elements. We consider a type scalar if it is a tuple of sc
 % (ArrayData Int, ArrayData Int)
 % \end{lstlisting}
 % %
-% internally. For \ndp{}, however, we leave that low level detail unspecified. We assume that it is possible to have arrays of tuples but do not enforce a particular representation. We still do, however, have the issue of how to represent nested arrays. This is discussed in \ref{sec:flattening}.
+% internally. For \ndp{}, however, we leave that low-level detail unspecified. We assume that it is possible to have arrays of tuples but do not enforce a particular representation. We still do, however, have the issue of how to represent nested arrays. This is discussed in \ref{sec:flattening}.
 
 Tuple projection works by supplying a numeric literal representing which element of the tuple to project out. For example:
 %
@@ -281,7 +281,7 @@ snd = prj 2
 \end{lstlisting}
 
 \subsection{Scalar Operations}
-The scalar operations of the language are divided into the binary and unary operations. We treat all operations as prefix when traversing the AST, but when writing programs we will often use infix notation for clarity. The semantics of the arithmetic operations are much as you would expect. We don't specify behaviour in edge cases, like division by zero, leaving that to be a property of the implementation. By assuming all integers are unbounded we can also ignore issues of overflow. All non arithmetic operations are over array extents. We describe those below.
+The scalar operations of the language are divided into the binary and unary operations. We treat all operations as prefix when traversing the AST, but when writing programs, we will often use infix notation for clarity. The semantics of the arithmetic operations are much as you would expect. We do not specify behaviour in edge cases, like division by zero, leaving that to be a property of the implementation. By assuming all integers are unbounded we can also ignore issues of overflow. All non-arithmetic operations are over array extents. We describe those below.
 
 \subsection{Shapes and extents}
 We treat array extents (the value level representations of shapes) as heterogeneous snoc-lists. The primary way in which they are constructed is via @Z@ and @(:.)@. Like Accelerate, we use @Z@ to represent the zero dimension. An array of extent @Z@ has a single element. We refer to such arrays as unit arrays. The snoc-operator @(:.)@ extends the dimensionality of an extent by 1.
@@ -300,7 +300,7 @@ The innermost dimension of an array is at the head of its shape descriptor, and 
 Z :. 3 :. 4 :. 2
 \end{lstlisting}
 %
-has an inner dimension of size 2 and an outer dimension of size 3. While for the most part the ordering of the array is orthogonal to what is described in the chapter, we will be consistent with Accelerate and opt for a row-major order. Therefore, an expression like this
+has an inner dimension of size 2 and an outer dimension of size 3. While for the most part, the ordering of the array is orthogonal to what is described in the chapter, we will be consistent with Accelerate and opt for a row-major order. Therefore, an expression like this
 %
 \begin{lstlisting}
 generate (Z :. 3 :. 2) (\v_0. v_0)
@@ -325,7 +325,7 @@ We support the following shape operations to construct and extract dimensions fr
 \item{@indexRight :: (IsShape sh, IsShape sh') => sh++sh' -> sh'@ gives the right shape of a concatenation of shapes. This depends on explicit type information to decide how to split its argument. It is not necessary to write programs but is produced by flattening.}
 \end{itemize}
 
-These operations on shapes are necessary to fully implement our flattening transform. They allow us to combine them arbitrarily and extract their components. The first three of these, are simple polymorphic functions over shapes. The remaining three, however, introduce some extra complexity in the form of the $(\doubleplus)$ type level shape concatenation operator. Unlike @(:.)@, we don't treat $(\doubleplus)$ as a type constructor, but rather as a type function that allows us to combine shape descriptors. For example,
+These operations on shapes are necessary to implement our flattening transform fully. They allow us to combine them arbitrarily and extract their components. The first three of these, are simple polymorphic functions over shapes. The remaining three, however, introduce some extra complexity in the form of the $(\doubleplus)$ type level shape concatenation operator. Unlike @(:.)@, we do not treat $(\doubleplus)$ as a type constructor, but rather as a type function that allows us to combine shape descriptors. For example,
 %
 \begin{lstlisting}[style=ndp]
 Z:.Int:.Int ++ Z:.Int ~ Z:.Int:.Int:.Int:.Int
@@ -345,9 +345,9 @@ also having type
 sh++(sh'++sh'')
 \end{lstlisting}
 
-In a more advanced type systems (like Haskell's) it is possible to capture such properties with value-level witnesses and so it is not necessary for such things to be encoded in the type system. For our purposes however, it is simpler just to include the extra rules.
+In more advanced type systems (like Haskell's) it is possible to capture such properties with value-level witnesses and so it is not necessary for such things to be encoded in the type system. For our purposes, however, it is simpler to include the extra rules.
 
-@(++)@ is also commutative, but this is not a fact that is relied upon at all, so we don't encode it.
+@(++)@ is also commutative, but this is not a fact that is relied upon at all, so we do not encode it.
 
 In addition to the above operations we also support
 %
@@ -365,7 +365,7 @@ intersect (Z:.1:.2) (Z:.2:.1) = Z:.1:.1
 
 \subsection{Array indexing}
 
-Arrays can be indexed by the bang (@!@) operator. As per the typing rule, shape of the array and the type of the index must match. For example, if @a@ is a matrix,
+Arrays are indexed by the bang (@!@) operator. As per the typing rule, the shape of the array and the type of the index must match. For example, if @a@ is a matrix,
 %
 \begin{lstlisting}
 a ! Z:.2:.1
@@ -376,7 +376,7 @@ will yield the value in the 2nd row and 1st column.
 We do not specify what happens in the event an array is accessed outside its extent. In this regard, indexing is a partial operation. Moreover, we make no attempt at preserving this undefined behaviour as part of our flattening transformation -- i.e. a program that accesses an array out of bounds may, after flattening, no longer do so. We assume all programs given to the transform are safe in this regard.
 
 \subsection{Array extents}
-The function @extent :: Array sh e -> sh@ returns the extent of an array, the value level representation of the shape. This is equivalent to @shape@ in Accelerate, renamed in order to avoid ambiguity between type level and value level information.
+The function @extent :: Array sh e -> sh@ returns the extent of an array, the value level representation of the shape. This is equivalent to @shape@ in Accelerate, renamed to avoid ambiguity between type level and value level information.
 
 \subsection{Array generation}
 The built-in operation @generate@ can be used to create arrays from a generation function.
@@ -393,7 +393,7 @@ evens = generate (Z:.10) (\ix -> indexHead ix * 2)
 \end{lstlisting}
 
 \begin{aside}
-\textbf{Note:} Here we're assuming we can write terms using named variables instead of DeBruijn indices and that we have a notion of higher-order functions. For the purposes of explanation, we will assume we can write terms in a higher-order Haskell-like meta-language that we can use to construct \ndp{} terms. By doing this, we can write additional higher order array combinators that will be useful not only to write more interesting programs, but also, as we will show, implementing many auxiliary functions for flattening.
+\textbf{Note:} Here we are assuming we can write terms using named variables instead of DeBruijn indices and that we have a notion of higher-order functions. For the purposes of explanation, we will assume we can write terms in a higher-order Haskell-like meta-language that we can use to construct \ndp{} terms. By doing this, we can write additional higher order array combinators that will be useful not only to write more interesting programs but also, as we will show, implementing many auxiliary functions for flattening.
 \end{aside}
 
 Combining @generate@ with indexing gives us the more traditional array combinator:
@@ -519,7 +519,7 @@ indices (Z:.3:.4) = { { Z:.0:.0, Z:.0:.1, Z:.0:.2, Z:.0:.3 }
                     , { Z:.2:.0, Z:.2:.1, Z:.2:.2, Z:.2:.3 } }
 \end{lstlisting}
 
-If we are viewing shapes in this way, then we can form an intuition about segment descriptors by viewing them in a similar way. They also represent a set of indices and a mapping to linear indices, but are less restricted. A shape descriptor specifies only a single size for each dimension, so can only represent regular sets of indices. However, with segment descriptors, we represent sets of indices that are more general. For example, suppose we want to represent an irregular 2D array with 4 rows and that the first row has 4 elements, the second has 3, the third has 0 and the fourth has 1. We would need a value of type
+If we are viewing shapes in this way, then we can form an intuition about segment descriptors by viewing them in a similar way. They also represent a set of indices and a mapping to linear indices but are less restricted. A shape descriptor specifies only a single size for each dimension, so can only represent regular sets of indices. However, with segment descriptors, we represent sets of indices that are more general. For example, suppose we want to represent an irregular 2D array with 4 rows and that the first row has 4 elements, the second has 3, the third has 0, and the fourth has 1. We would need a value of type
 %
 \begin{lstlisting}
 unevenRows :: Segments (Z:.Int:.Int)
@@ -554,7 +554,7 @@ It constructs a flat vector given some segments descriptors and a generation fun
 type Vector = Array (Z:.Int)
 \end{lstlisting}
 
-That still leaves use with the problem of how to construct segment descriptors. Unlike with shape descriptors, we can't just represent them with a list of integer dimensions. Instead, we use @segmented@. It takes an array of some shape @sh@ containing values of @sh'@ and gives back @Segments (sh++sh')@. For our example
+That still leaves us with the problem of how to construct segment descriptors. Unlike with shape descriptors, we cannot just represent them with a list of integer dimensions. Instead, we use @segmented@. It takes an array of some shape @sh@ containing values of @sh'@ and gives back @Segments (sh++sh')@. For our example
 %
 \begin{lstlisting}[style=ndp]
 unevenRows = segmented { Z:.4, Z:.3, Z:.0, Z:.1}
@@ -615,7 +615,7 @@ sums :: Vector (Vector Int) -> Vector Int
 sums xss = map sum xss
 \end{lstlisting}
 %
-If the ultimate goal is to remove any nesting from a program, what we require is a version of this function that does not depend on nesting. How can we do that? We'll look at two possible situations. Suppose @xss@ is regular, that is, all sub-vectors are of the same length, then we can treat our vector of vectors as a 2D array. This gives an alternative version of @sums@.
+If the ultimate goal is to remove any nesting from a program, what we require is a version of this function that does not depend on nesting. How can we do that? We will look at two possible situations. Suppose @xss@ is regular, that is, all sub-vectors are of the same length, then we can treat our vector of vectors as a 2D array. This gives an alternative version of @sums@.
 %
 \begin{lstlisting}[style=ndp]
 sums_R :: Array DIM2 Int -> Vector Int
@@ -633,7 +633,7 @@ sums_Ir (segs, vs) = snd (fold_seg (+) 0 segs vs)
 %
 Here, we're representing this collection of vectors in a \emph{segmented} form. Like the segmented arrays described in Section~\ref{sec:ndp}, it is split into a \emph{flat data vector} (containing all the elements of all vectors) together with a set of segment descriptors describing how to index the flat vector.
 
-Unlike our regular representation, we can't just use the same version of the fold operation to work over a segmented representation. Instead we use the segmented variant of @fold@. This has the type:
+Unlike our regular representation, we cannot just use the same version of the fold operation to work over a segmented representation. Instead, we use the segmented variant of @fold@. This has the type:
 %
 \begin{lstlisting}[style=ndp]
 fold_seg :: (a -> a -> a)
@@ -643,11 +643,11 @@ fold_seg :: (a -> a -> a)
         -> (Segments sh, Vector a)
 \end{lstlisting}
 %
-We will cover in more detail the implementation of this operation in chapter \ref{chap:implementation}. Suffice to say however, any implementation of it is going to be significantly more expensive than that of @fold@. Moreover, whatever the concrete representation of @Segments@ is, maintaining and passing them around is an additional overhead. Clearly, we want to incur these costs only when necessary. The use of the segmented fold should be avoided wherever possible. Putting it another way, we want to make sure that when it is possible to do so, the \emph{regular} fold is used instead.
+We will cover in more detail the implementation of this operation in chapter \ref{chap:implementation}. Suffice to say, however, any implementation of it is going to be significantly more expensive than that of @fold@. Moreover, whatever the concrete representation of @Segments@ is, maintaining and passing them around is an additional overhead. Clearly, we want to incur these costs only when necessary. The use of the segmented fold should be avoided wherever possible. Putting it another way, we want to make sure that when it is possible to do so, the \emph{regular} fold is used instead.
 
 This is not just true for this particular example or just for @fold@. In general, computations on regular, multi-dimensional arrays are much more efficient than performing the same computations on nested, potentially irregular structures. In other words, the mere ability to handle irregular structures presents a significant runtime overhead, even if it is never used. Hence, it is crucial for our variant of flattening to preserve regularity. Computations which are regular, even when written using nesting, should remain regular when flattened.
 
-So, to recap, what we require is a method by which to take \ndp{} terms and convert them to terms that perform the same function over the most appropriate representations of its arrays. We do this by \emph{lifting} all open terms into terms that operate in a lifted context. We will described this in the next section. However, before that, it is important to note that the regular and irregular representations are not the only ones we care about. The \emph{avoided} representation is when we don't change the representation of arrays or scalar values at all.
+So, to recap, what we require is a method by which to take \ndp{} terms and convert them to terms that perform the same function over the most appropriate representations of its arrays. We do this by \emph{lifting} all open terms into terms that operate in a lifted context. We will describe this in the next section. However, before that, it is important to note that the regular and irregular representations are not the only ones we care about. The \emph{avoided} representation is when we do not change the representation of arrays or scalar values at all.
 
 As a simple example, consider this scalar function:
 %
@@ -965,14 +965,14 @@ The concrete flattening transformation presented in the rest of this section avo
 % \rob{TLM: Yes, it's a simplified version of that.}
 % \gck{Rob - I changed the first Norm rule according to our email conv}
 
-While type information is not necessary to perform a flattening transformation, if we wish to describe it in such a way that it is type \emph{preserving} we have to be mindful of what is happening at the type level. Here, we discuss the type transformations $\mathcal{N}$ and $\mathcal{F}$. In the next section we will show how the term transformation $\mathcal{L}$ matches up to $\mathcal{N}$ and $\mathcal{F}$.
+While type information is not necessary to perform a flattening transformation, if we wish to describe it in such a way that it is type \emph{preserving} we have to be mindful of what is happening at the type level. Here, we discuss the type transformations $\mathcal{N}$ and $\mathcal{F}$. In the next section, we will show how the term transformation $\mathcal{L}$ matches up to $\mathcal{N}$ and $\mathcal{F}$.
 
-Previous work on flattening~\cite{Chakravarty:more-types} describes the type level component as a simple function. However, in this work, some types have more than one possible flattened representation. Having both regular and irregular flattening contexts give us a choice between different representations, the exact type of a term after flattening will not be known till after that term has been traversed. For this reason, we will represent our type level transformation relationally.
+Previous work on flattening~\cite{Chakravarty:more-types} describes the type level component as a simple function. However, in this work, some types have more than one possible flattened representation. Having both regular and irregular flattening contexts give us a choice between different representations, the exact type of a term after flattening will not be known until after that term has been traversed. For this reason, we will represent our type level transformation relationally.
 
-To aid in explanation, we will use something similar to Haskell's generalised algebraic data types (GADTs)~\citep{Jones:2006eh} both to describe the type level relations and also to track information in the term level transformation. This advantage of this it allows us to bring type equivalencies into the environment by simply matching on constructors. It also has the added benefit of more closely matching the concrete implementation in Accelerate.
+To aid in explanation, we will use something similar to Haskell's generalised algebraic data types (GADTs)~\citep{Jones:2006eh} both to describe the type level relations and also to track information in the term level transformation. This advantage of this it allows us to bring type equivalencies into the environment by simply matching on constructors. It has the added benefit of more closely matching the concrete implementation in Accelerate.
 
 \subsubsection{Normalisation}
-The first type transformation, @Norm t t@$_{\textit{norm}}$, computes an array normal form @t@$_{\textit{norm}}$ of an Accelerate type @t@. The input is any (possibly nested) type and the output is a tuple (can be a nested tuple) of arrays with no array nesting.
+The first type transformation, @Norm t t@$_{\textit{norm}}$, computes an array normal form @t@$_{\textit{norm}}$ of an Accelerate type @t@. The input is any (possibly nested) type, and the output is a tuple (can be a nested tuple) of arrays with no array nesting.
 
 \begin{lstlisting}[style=ndp]
 data Norm t t' where
@@ -984,17 +984,17 @@ data Norm t t' where
           -> Norm (t_1, t_2, ..., t_n) (t_1', t_2', ..., t_n')
 \end{lstlisting}
 
-Before we begin describing this fundamentally simple relation, it is first necessary to discuss an unusual feature of the meta language we use for describing the transform. For the most part, one can view the meta-language as being Haskell. This matches the implementation in Accelerate and leads to understandable definition, for a reader already familiar with Haskell. However, to further aid explanation, we allow for the meta language to generalise over tuples. We use the $(...)$ notation to capture the fact that something can take an arbitrary n-tuple. Suppose we have a function like
+Before we begin describing this fundamentally simple relation, it is first necessary to discuss an unusual feature of the meta language we use for describing the transform. For the most part, one can view the meta-language as being Haskell. This matches the implementation in Accelerate and leads to an understandable definition, for a reader already familiar with Haskell. However, to further aid explanation, we allow for the meta-language to generalise over tuples. We use the $(...)$ notation to capture the fact that something can take an arbitrary n-tuple. Suppose we have a function like
 %
 \begin{lstlisting}
 foo :: (Array sh_1 e_1, Array sh_2 e_2, ... Array sh_n e_n) -> r
 \end{lstlisting}
 %
-it is able to take any tuple value as argument; e.g. both @(Array sh1 e1, Array sh2 e2)@ and @(Array sh1 e1, Array sh2 e2, Array sh3 e3)@ would be considered valid argument types. In addition, we treat one-tuples as being equivalent to a single value. So @Array sh e@ would be a valid argument as well. While it is possible to write tuple-arity polymorphic functions in Haskell, with representation types or generic programming libraries, doing so require significant extra type level programming that has a tendency to permeate throughout the code, even in the parts where it is not relevant. We opt not to do this in this work as it what we describe already has a complex type level component and it would only obscure the relative simplicity of what is happening. By assuming our meta language lets us generalise over tuples and single values we sidestep the issue, leaving it to be explored in Chapter~\ref{chap:implementation}.
+it is able to take any tuple value as argument; e.g. both @(Array sh1 e1, Array sh2 e2)@ and @(Array sh1 e1, Array sh2 e2, Array sh3 e3)@ would be considered valid argument types. In addition, we treat one-tuples as being equivalent to a single value. So @Array sh e@ would be a valid argument as well. While it is possible to write tuple-arity polymorphic functions in Haskell, with representation types or generic programming libraries, doing so require significant extra type-level programming that tends to permeate throughout the code, even in the parts where it is not relevant. We opt not to do this in this work as it what we describe already has a complex type level component and it would only obscure the relative simplicity of what is happening. By assuming our meta language lets us generalise over tuples and single values we sidestep the issue, leaving it to be explored in Chapter~\ref{chap:implementation}.
 
 Going back to the relation, we will first look at the @Scalar@ constructor. It specifies that scalars of type @e@ are wrapped in a zero dimension array of type @Array Z e@, keeping in mind that our definition of scalar values includes tuples of scalars.
 
-The @Nest@ constructor captures how a regular $n$-dimensional array of regular $m$-dimensional arrays becomes an $n+m$-dimensional array. Or, to put it in terms of shapes, an array of shape @sh@ containing arrays of shape @sh'@ becomes an array of shape @sh++sh'@.
+The @Nest@ constructor captures how a regular $n$-dimensional array of regular $m$-dimensional arrays becomes an $n+m$-dimensional array. Alternatively, to put it in terms of shapes, an array of shape @sh@ containing arrays of shape @sh'@ becomes an array of shape @sh++sh'@.
 For example, vectors of vectors of @Int@s, after expanding synonyms, has the type:
 %
 \begin{lstlisting}[style=ndp]
@@ -1029,15 +1029,15 @@ This normalisation process gives us a way to remove the nesting from data struct
 \subsubsection{Flattening}
 The second type relation, @Vect t t_flat@, takes an Accelerate type to its flattened form @t@$^{\textit{flat}}$ by first normalising @t@ by way of @Norm t t_norm@, and then extending the dimensionality of the normalised @t@$^{\textit{norm}}$ in either a regular or irregular form.
 
-The first argument to @Vect@ is what we refer to as the lifting shape. It represents to what dimension the type has been lifted to. To put it another way. A term of type
+The first argument to @Vect@ is what we refer to as the lifting shape. It represents to what dimension the type has been lifted. To put it another way, a term of type
 %
 \begin{lstlisting}[style=ndp]
 Vect sh_l t t_flat
 \end{lstlisting}
 %
-witnesses that @t@$^{\textit{flat}}$ can be also be represented as an array of shape @sh_l@ containing values of type @t@. The difference between the two representations being that @t@$^{\textit{flat}}$ does not contain any explicit non-scalar nesting. It is important to note that the two types are not actually isomorphic. While it is possible to convert from values of @t@$^{\textit{flat}}$ to @Array sh_l  t@, the reverse direction is not always possible. That is because @Vect@ also captures information about regularity and avoidance.
+witnesses that @t@$^{\textit{flat}}$ can also be represented as an array of shape @sh_l@ containing values of type @t@. The difference between the two representations being that @t@$^{\textit{flat}}$ does not contain any explicit non-scalar nesting. It is important to note that the two types are not actually isomorphic. While it is possible to convert from values of @t@$^{\textit{flat}}$ to @Array sh_l  t@, the reverse direction is not always possible. That is because @Vect@ also captures information about regularity and avoidance.
 
-This desire to capture the regularity makes this transform ambiguous. This is why it is necessary to treat the whole transformation as relation. If the enclosing data-parallel context is regular, we simply increase the dimensionality of all arrays in @t@$^{\textit{norm}}$ by @sh_l@. However, if the context is irregular, we need to introduce segment descriptors, as discussed in the previous section. These two cases are covered by the alternatives @Regular@ and @Irregular@ below:
+This desire to capture the regularity makes this transform ambiguous. This is why it is necessary to treat the whole transformation as a relation. If the enclosing data-parallel context is regular, we simply increase the dimensionality of all arrays in @t@$^{\textit{norm}}$ by @sh_l@. However, if the context is irregular, we need to introduce segment descriptors, as discussed in the previous section. These two cases are covered by the alternatives @Regular@ and @Irregular@ below:
 %
 \begin{lstlisting}[style=ndp]
 data Vect sh_l t t_flat where
@@ -1067,7 +1067,7 @@ foo xs = ( generate (Z:.10) (\_ -> xs)
          , map (\x -> generate (Z:.x) (_ -> x)) xs)
 \end{lstlisting}
 %
-Here we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it @xs@. Because each sub-vector is the same length it is regular and thus can use a regular representation after flattening. The second component of the pair is of the same length as @xs@, but with each sub-vector of length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
+Here we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it @xs@. Because each sub-vector is the same length, it is regular and thus can use a regular representation after flattening. The second component of the pair is of the same length as @xs@, but with each sub-vector of length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
 
 To further underpin this, consider how tuples are often used in functional programs. A programmer would expect
 %
@@ -1086,7 +1086,7 @@ bar' = let (a,b) = (A, B)
 %
 Assuming that B does not depend on A (or vice versa), it would be undesirable for the simple introduction of a tuple grouping related bindings to introduce substantial performance changes. Similarly, \emph{currying} or \emph{uncurrying} functions should not alter their performance characteristics.
 
-Flattening avoidance is covered by the @Avoid_S@ and @Avoid_A@ alternatives, where we keep the type the same. We don't need to normalise as the @e@ in @Avoid_S :: Vect sh_l e e@ and @Avoid_A :: Vect sh_l (Array sh e) (Array sh e)@ is guaranteed to be scalar by the @IsScalar@ constraint.
+Flattening avoidance is covered by the @Avoid_S@ and @Avoid_A@ alternatives, where we keep the type the same. We do not need to normalise as the @e@ in @Avoid_S :: Vect sh_l e e@ and @Avoid_A :: Vect sh_l (Array sh e) (Array sh e)@ is guaranteed to be scalar by the @IsScalar@ constraint.
 
 The @Vect@ type is not a singleton. That is to say, there are multiple witness for some type relations. For example,
 %
@@ -1123,20 +1123,20 @@ The lifting transform @Lift@ takes a term in our language and yields a term in t
 Lift[|.|] :: Expr Gamma t -> Env sh_l Gamma Gamma_flat -> (exists t_flat. (Vect sh_l t t_flat, Expr Gamma_flat t_flat))
 \end{lstlisting}
 %
-This transformation has many components, so we'll look at each one in turn. The first argument of type @Expr Gamma  t@ is the typed abstract syntax (AST) of the core language term that is to be flattened, where @Gamma@ is a type-level list of the free variables in the term and @t@ is its type.
+This transformation has many components, so we will look at each one in turn. The first argument of type @Expr Gamma  t@ is the typed abstract syntax (AST) of the core language term that is to be flattened, where @Gamma@ is a type-level list of the free variables in the term and @t@ is its type.
 
 The second argument, of type @Env sh_l  Gamma  Gamma_flat@, is an environment that relates the types of the free variables @Gamma@ to their flattened form @Gamma_,flat@. Like the @Vect@ relation, it is also parameterised by the lifting shape.
 
 Finally, the result combines the witness for the flattened result type @t_flat@ with the lifted term @Expr Gamma_,flat t_flat@, whose type parameters have been flattened to match, establishing type-preservation of the transformation.
 
-The structure of the environment @Env sh_l  Gamma  Gamma_,flat@ is somewhat more involved than usual, due to special requirements during flattening. Specifically, we need to handle access variables to brought into scope with a @generate@ outside the most immediate one. To give an example for this:
+The structure of the environment @Env sh_l  Gamma  Gamma_,flat@ is somewhat more involved than usual, due to special requirements during flattening. Specifically, we need to handle access variables to brought into scope with a @generate@ outside the most immediate one. To give an example of this:
 %
 \begin{lstlisting}
 mults :: Expr [] (Vector (Vector Int))
 mults = generate (Z:.10) (\v_0 -> generate v_0 (\v_0 -> indexHead v_1 * indexHead v_0))
 \end{lstlisting}
 %
-Here we're constructing the lower triangle of a multiplication table. If we want to flatten this, we have to lift the inner @generate@ from 1D to 2D, but not lift the outer generate at all. However, in the body of the inner generate we are referring to a variable bound by the outer generate. This presents a problem. The variable was bound at a point which is not being lifted to the same dimension. We partially resolve this by tracking lifting shape in the environment, but this doesn't take into account the actual \emph{extent} of the outer array. Because of this, we track both regular (the @(:@$_R$@)@ alternative) and irregular contexts (the @(:@$_{Ir}$@)@ alternative). When the lifting transform encounters a generate it must extend the lifting shape by the shape of the generated array. The generation function can then be lifted under this larger context.
+Here we are constructing the lower triangle of a multiplication table. If we want to flatten this, we have to lift the inner @generate@ from 1D to 2D, but not lift the outer generate at all. However, in the body of the inner @generate@, we are referring to a variable bound by the outer @generate@. This presents a problem. The variable was bound at a point which is not being lifted to the same dimension. We partially resolve this by tracking lifting shape in the environment, but this does not take into account the actual \emph{extent} of the outer array. Because of this, we track both regular (the @(:@$_R$@)@ alternative) and irregular contexts (the @(:@$_{Ir}$@)@ alternative). When the lifting transform encounters a generate it must extend the lifting shape by the shape of the generated array. The generation function can then be lifted under this larger context.
 %
 \begin{lstlisting}[style=ndp]
 data Env sh_l Gamma Gamma_flat where
@@ -1368,22 +1368,22 @@ The transformation rules of the flattening transformation are given in Figure~\r
 This is the simplest construct in terms of flattening. When it encounters a literal value, flattening returns it as it is, paired with the @Avoid_S@ constructor to signal that it does not need to be lifted.
 
 \subsubsection{Variables }
-When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index then the variable itself is let unchanged but may have a series of replicates applied to it in order to make it \emph{fit} the current context. Because our indices are typed, we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
+When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index, then the variable itself is let unchanged but may have a series of replicates applied to it to make it \emph{fit} the current context. Because our indices are typed, we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
 
 \subsubsection{Let bindings}
 The let-binding rule shows how bindings are introduced and how they are tracked via @Env@. The binding is first flattened, giving a @Vect@-witness. This witness is placed into the environment for flattening the body of the let-binding. This ensures that any occurrences of that variable are assigned the right type.
 
-To avoid any confusion, the let-binding we are introducing here exists in the target language, not the meta language. We assume that the let-syntax of our meta language is overloaded to construct let bindings in either the meta language or the object language as necessary.
+To avoid any confusion, the let-binding we are introducing here exists in the target language, not the meta-language. We assume that the let-syntax of our meta-language is overloaded to construct let bindings in either the meta language or the object language as necessary.
 
 \subsubsection{Tuples and tuple projection}
-In order to lift a tuple constructor, we lift each component and construct a new tuple containing them. Similarly to let bindings, we assume that our meta language overloads tuple construction to support construction in our object language.
+To lift a tuple constructor, we lift each component and construct a new tuple containing them. Similarly to let bindings, we assume that our meta language overloads tuple construction to support construction in our object language.
 
 In the case of tuple projection, it is similarly just a matter of projecting the same component from the lifted tuple.
 
 \subsubsection{Primitive operations}
 For unary operations, lifting is straightforward. We simply @map@ the operation over the lifted operand.
 
-It gets more complex with binary operations as we have the possibility that each operand ends up having a different representation after lifting. Each could be either avoided, regular or irregular. In total this gives us 9 different possible combinations, but we are able to cheat a bit by handling symmetric cases by swapping the arguments of the operation.
+It gets more complex with binary operations as we have the possibility that each operand ends up having a different representation after lifting. Each could be either avoided, regular or irregular. In total, this gives us 9 different possible combinations, but we can cheat a bit by handling symmetric cases by swapping the arguments of the operation.
 %
 \begin{lstlisting}[style=ndp]
 liftBinOp :: (IsScalar e_1, IsScalar e_2)
@@ -1406,9 +1406,9 @@ liftBinOp p r_1 r_2 e_1 e_2
 %
 
 \subsubsection{Array shapes}
-With @extent@, if the term it is applied to does not need to be flattened then it just returns the original expression.
+With @extent@, if the term it is applied to does not need to be flattened, then it just returns the original expression.
 
-The more interesting case occurs when the argument expression flattens in a regular context. In this case we simply take the shape of the resulting array, and strip off the outer dimensions corresponding to the lifting shape and the inner dimensions corresponding to the original array. This is done with @extent_R@.
+The more interesting case occurs when the argument expression flattens in a regular context. In this case, we simply take the shape of the resulting array and strip off the outer dimensions corresponding to the lifting shape and the inner dimensions corresponding to the original array. This is done with @extent_R@.
 %
 \begin{lstlisting}[style=ndp]
 extent_R :: Expr Gamma (Array (sh_l++(sh++sh_1)) e_1, ...)
@@ -1512,7 +1512,7 @@ replicate_A (Right ctx) t = ( Irregular (Nest Scalar)
 \label{fig:forced-lifting}
 \end{figure}
 
-The lifted indexing itself is relatively straightforward. In the regular case, we take a series of slices of the input arrays.
+ThThe lifted indexing itself is relatively straightforward. In the regular case, we take a series of slices of the input arrays.
 %
 \begin{lstlisting}[style=ndp]
 (!_R) :: Expr Gamma (Array (sh_l++sh++sh_1) e, ...)
@@ -1539,7 +1539,7 @@ arr !_Ir ix = ( let segs = (outsides (prj 0 (prj 1 arr)))
 \subsubsection{Array construction}
 The @generate@ rule is one of the more interesting ones. In our language, it is the only way in which nesting can be introduced. All other operations either remove nesting or preserve it. Because of this, we have to handle a greater number of possible cases. These cases are handled by a backtrack search. First, we have to check if flattening can be avoided entirely, which would be the cheapest solution. This is only true if flattening can be avoided for both arguments and the second argument is scalar.
 
-If it is not possible to avoid flattening for both arguments, but it is for the first argument (the extent of the output) then we can be smarter. We know that this occurrence of @generate@ is not introducing any new irregular nesting. However, it may still be getting used in an irregular context, or its second argument (the generation function) may itself be introducing irregularity. For this reason, we need to use @context@, given in Figure~\ref{fig:forced-lifting}, to determine whether we are in a regular or irregular context. If we are in regular context then we do a lifted enumeration with @enum_R@.
+If it is not possible to avoid flattening for both arguments, but it is for the first argument (the extent of the output), then we can be smarter. We know that this occurrence of @generate@ is not introducing any new irregular nesting. However, it may still be getting used in an irregular context, or its second argument (the generation function) may itself be introducing irregularity. For this reason, we need to use @context@, given in Figure~\ref{fig:forced-lifting}, to determine whether we are in a regular or irregular context. If we are in regular context, then we do a lifted enumeration with @enum_R@.
 %
 \begin{lstlisting}[style=ndp]
 enum_R :: Shape sh => Expr Gamma sh_l -> Expr Gamma sh -> Expr Gamma (Array (sh_l++sh) sh)
@@ -1553,7 +1553,7 @@ enum_R 2 (Z:.2) (Z:.3) = { {Z:.0, Z:.1, Z:.2}
                          , {Z:.0, Z:.1, Z:.2} }
 \end{lstlisting}
 %
-Here, we're producing a 2D array containing 2 enumerations of @Z:.3@. In \ref{fig:lifting-transform}, we use an enumeration like this to satisfy our generation function. This gives us the actual result we need, but in order to convince the type checker of the meta language of this fact, we have to do some manipulation of the @Vect@ relation witness.
+Here, we are producing a 2D array containing 2 enumerations of @Z:.3@. In \ref{fig:lifting-transform}, we use an enumeration like this to satisfy our generation function. This gives us the actual result we need, but to convince the type checker of the meta-language of this fact, we have to do some manipulation of the @Vect@ relation witness.
 %
 \begin{lstlisting}[style=ndp]
 nest :: Vect (sh_l++sh) e e_flat
@@ -1593,7 +1593,7 @@ The backtracking we rely on for lifting @generate@ could, in theory, lead to exp
 % With respect to the definition of \lstinline[style=ndp]{Env Gamma  Gamma_flat}, it is worth noting how the recursive use of lifting in the @generate@ case extends the environment with regular and irregular vectorisation contexts, which subsequently lead to the generation of the appropriate uses of \lstinline[style=ndp]{replicate_R} and \lstinline[style=ndp]{replicate_Ir} by @var@ (as discussed above).
 
 \subsection{Array reduction}
-For @fold@, the type system ensures that the function it is applied to is a sequential computation over scalars, and the initial value is a scalar as well. This does not however, preclude the possibility that one of them may contain parallelism. This presents a problem for us as a fold with a reduction function containing parallelism is not typically supported by data parallel models of computing. For this reason, we leave the transform as partial in this regard. Flattening will fail for programs that rely on parallelism in reduction functions. This is true of other nested data parallel languages (e.g. Data Parallel Haskell~\cite{Chakravarty:DPH} and \nesl~\cite{Blelloch:nesl1995}),
+For @fold@, the type system ensures that the function it is applied to is a sequential computation over scalars, and the initial value is a scalar as well. This does not, however, preclude the possibility that one of them may contain parallelism. This presents a problem for us as a fold with a reduction function containing parallelism is not typically supported by data-parallel models of computing. For this reason, we leave the transform as partial in this regard. Flattening will fail for programs that rely on parallelism in reduction functions. This is true of other nested data parallel languages (e.g. Data Parallel Haskell~\cite{Chakravarty:DPH} and \nesl~\cite{Blelloch:nesl1995}),
 
 Flattening @fold@s is relatively straightforward compared to @generate@s. It all depends on the 3rd argument. If the flattening of it can be avoided, then the entire fold can be avoided. If it has a regular flattened representation, then it can be reduced just by using a normal @fold@. If the representation is irregular, then @fold_seg@ is used.
 
