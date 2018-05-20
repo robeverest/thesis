@@ -1246,7 +1246,8 @@ zipWith :: (forall Gamma_flat. Expr Gamma_flat a -> Expr Gamma_flat b -> Expr Ga
         -> Expr Gamma (Array sh a)
         -> Expr Gamma (Array sh b)
         -> Expr Gamma (Array sh c)
-zipWith f as bs = generate (intersect (extent as) (extent bs)) (\v_0. f (weaken as ! v_0) (weaken bs ! v_0))
+zipWith f as bs =
+  generate (intersect (extent as) (extent bs)) (\v_0. f (weaken as ! v_0) (weaken bs ! v_0))
 
 zipWith_seg :: (forall Gamma_flat. Expr Gamma_flat a -> Expr Gamma_flat b -> Expr Gamma_flat c)
         -> Expr Gamma (Segments sh, Vector a)
@@ -1254,7 +1255,8 @@ zipWith_seg :: (forall Gamma_flat. Expr Gamma_flat a -> Expr Gamma_flat b -> Exp
         -> Expr Gamma (Segments sh, Vector c)
 zipWith_seg f as bs =
   let segs = intersects (prj 1 as) (prj 1 bs)
-  in ( segs, generate_seg segs (\v_0. f (weaken as ! Z :. weaken segs # v_0) (weaken bs ! Z :. weaken segs # v_0)))
+  in ( segs
+     , generate_seg segs (\v_0. f (weaken as ! Z :. weaken segs # v_0) (weaken bs ! Z :. weaken segs # v_0)))
 
 unit :: IsScalar a => Expr Gamma a -> Expr Gamma (Array Z a)
 unit a = generate Z (\_. (weaken a))
@@ -1331,25 +1333,27 @@ Lift[|generate e_1 (\ v_0. e_2)|] env
   -- Regular array in a regular context
   | Left ctx       <- context env
   , (Avoid_S, e_1_flat) <- Lift[|e_1|] env
-  , (r, e_2_flat)      <- Lift_F[|e_2|] (Regular Scalar : e_1_flat :_R env)
+  , (r, e_2_flat)      <-
+      Lift_F[|e_2|] (Regular Scalar : e_1_flat :_R env)
   = (nest r, let v_0 = enum_R ctx e_1_flat in e_2_flat)
   -- Array is irregular or in irregular context
   | (r_1, e_1_flat) <- Lift[|e_1|] env
-  , segs            <- segmentsOf r_1 e_1_flat
+  , segs       <- segmentsOf r_1 e_1_flat
   , (r_2, e_2_flat) <-
       Lift_F[|e_2|] (Irregular Scalar : segs :_Ir env)
-  = (nest r_2, let v_0 = enum_Ir (context env) segs in e_2_flat)
+  = (nest r_2, let v_0 = enum_Ir (context env) segs
+              in e_2_flat)
 Lift[|fold (\v_1 v_0. e_1) e_2 e_3|] env
   | (Avoid_S, e_2_flat) <- Lift[|e_2|] env
   , (Avoid_S, e_1_flat) <- Lift[|e_1|] (Avoid : env)
   , (Avoid_A, e_3_flat) <- Lift[|e_3|] env
   = (Avoid_A, fold (\v_1 v_0. e_1_flat) e_2_flat e_3_flat)
-  | (Avoid_S, e_2_flat)              <- Lift[|e_2|] env
-  , (Avoid_S, e_1_flat)              <- Lift[|e_1|] (Avoid : env)
+  | (Avoid_S, e_2_flat)           <- Lift[|e_2|] env
+  , (Avoid_S, e_1_flat)           <- Lift[|e_1|] (Avoid : env)
   , (Regular (Nest r), e_3_flat) <- Lift[|e_3|] env
   = (Regular r, fold (\v_1 v_0. e_1_flat) e_2_flat e_3_flat)
-  | (Avoid_S, e_2_flat)                <- Lift[|e_2|] env
-  , (Avoid_S, e_1_flat)                <- Lift[|e_1|] (Avoid : env)
+  | (Avoid_S, e_2_flat)             <- Lift[|e_2|] env
+  , (Avoid_S, e_1_flat)             <- Lift[|e_1|] (Avoid : env)
   , (Irregular (Nest r), e_3_flat) <- Lift[|e_3|] env
   = (Irregular r, fold_seg (\v_1 v_0. e_1_flat) e_2_flat e_3_flat)
  %%
@@ -1531,9 +1535,10 @@ For irregular indexing, it works in much the same way, except for needing to wor
       => Expr Gamma ((Segments (sh_l++sh++sh_1), Vector e_1), ...)
       -> Expr Gamma (Segments sh_l, Vector sh)
       -> Expr Gamma ((Segments (sh_l++sh_1), Vector e_1), ... )
-arr !_Ir ix = ( let segs = (outsides (prj 0 (prj 1 arr)))
-               in segs, generate_seg segs (\v_0 . prj 2 (prj 1 arr) ! inside (ix ! prj 1 ix # indexLeft v_0) v_0)
-             , ...)
+arr !_Ir ix =
+  ( let segs = (outsides (prj 0 (prj 1 arr)))
+    in segs, generate_seg segs (\v_0 . prj 2 (prj 1 arr) ! inside (ix ! prj 1 ix # indexLeft v_0) v_0)
+  , ...)
 \end{lstlisting}
 
 \subsubsection{Array construction}

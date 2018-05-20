@@ -170,8 +170,8 @@ linear regression.% , unless otherwise noted.
 
 \section{Sparse-Matrix Vector Multiplication (SMVM)}
 
+\begin{landscape}
 \begin{table}
-\begin{scriptsize}
 \begin{center}
 \makebox[\textwidth][c]{%
 \begin{tabular}{lrrrrrrrrrrrrr}
@@ -432,13 +432,13 @@ linear regression.% , unless otherwise noted.
   \bottomrule
 \end{tabular}}
 \end{center}
-\end{scriptsize}
 \caption{Overview of sparse matrices tested and results of the benchmark.
 Measurements in GFLOPS/s (higher is better). Columns labelled N=$n$ are CPU
 implementations using $n$ threads. Competitor implementations are Intel MKL on
 the CPU and NVIDIA cuSPARSE on the GPU.}
 \label{tab:smvm}
 \end{table}
+\end{landscape}
 
 SMVM multiplies a sparse general matrix in compressed row format
 (CSR)~\cite{Chatterjee:1990vj} with a dense vector (see Section~\ref{sec:irregularity}). Table~\ref{tab:smvm} compares Accelerate to the Intel Math Kernel Library\footnote{\url{https://software.intel.com/en-us/intel-mkl}} (MKL v11.3.2,
