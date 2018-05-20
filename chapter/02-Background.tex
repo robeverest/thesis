@@ -263,9 +263,9 @@ then it is not necessary to construct all the intermediate arrays. \citet{Keller
 \subsection{Fusion}
 \label{sec:fusion}
 
-Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the program's runtime is spent reading and writing values to and from memory. This problem is not unique to flattened programs. In general, collection-oriented languages by their very produce more intermediate structures than necessary.
+Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the program's runtime is spent reading and writing values to and from memory. This problem is not unique to flattened array programs, but is prevalent in the domain of functional programming and  collection-oriented languages generally. These languages, by their very nature, produce more intermediate structures than necessary. They facilitate and encourage programs to be written in that style because of the compositionality it yields.
 
-Fusion (or deforestation) attempts to alleviate this problem by combining adjacent transformations on structures to remove intermediate results. This has been studied extensively~\cite{Wadler:1990ix,Coutts:stream-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
+Fusion (or deforestation) attempts to alleviate this problem by combining adjacent transformations on structures to remove intermediate results. This has been studied extensively, both in the general area of functional programming~\cite{Wadler:1990ix,Meijer:bananas,Gill:1993de,Coutts:stream-fusion} and specifically for arrays~\cite{Chakravarty:array-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
 
 For simple cases, fusion can be achieved by basic first-order term rewrites. For example, the rule
 %
@@ -273,7 +273,7 @@ For simple cases, fusion can be achieved by basic first-order term rewrites. For
 map f (map g) = map (f . g)
 \end{lstlisting}
 %
-removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings, which may obscure chains of @map@s, and there is no clear way to the intermediate structure for terms of the form:
+removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings, which may obscure chains of @map@s, and there is no clear way to remove the intermediate structure in expressions of the form:
 %
 \begin{lstlisting}
 fold f z (map f xs)
