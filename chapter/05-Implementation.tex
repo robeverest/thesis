@@ -3,7 +3,7 @@
 
 To demonstrate the utility of sequences, we must explore what is required to implement them in the feature-rich array language, Accelerate. We will provide a high-level overview of the implementation. For more detailed information we refer to the publicly available implementation.\footnote{This is available at \url{https://github.com/AccelerateHS/accelerate/tree/feature/sequences}}
 
-We first address how sequences fit into Accelerate's existing compiler infrastructure (Section~\ref{sec:seq-architecture}), before describing the implementation of the flattening transform (Section~\ref{sec:flatteing-impl}). However, this alone is not sufficient to achieve competitive absolute performance for sequence programs, so we also describe extensions to Accelerate's optimisation passes (Section~\ref{sec:Optimisation}). Lastly, to execute sequence computation with the desired property of minimised memory usage, we require a dynamic scheduler (Section~\ref{sec:scheduling}).
+We first address how sequences fit into Accelerate's existing compiler infrastructure (Section~\ref{sec:seq-architecture}), before describing the implementation of the flattening transform (Section~\ref{sec:flattening-impl}). However, this alone is not sufficient to achieve competitive absolute performance for sequence programs, so we also describe extensions to Accelerate's optimisation passes (Section~\ref{sec:Optimisation}). Lastly, to execute sequence computation with the desired property of minimised memory usage, we require a dynamic scheduler (Section~\ref{sec:scheduling}).
 
 \section{Architecture}
 \label{sec:seq-architecture}
@@ -59,6 +59,8 @@ device memory those elements of the sequence @xs@ that are processed together. B
 dynamically adjusting the number of elements operated on at once, we aim to
 minimise memory usage while keeping all processing elements fully utilised. The flattening transformation takes the definition of the function @f@ and rewrites it to a definition for @f@$^\uparrow$, such that semantically @f@$^\uparrow$@ = mapSeq f@; in other words, @f@$^\uparrow$ can process multiple elements of @xs@ at once, in parallel.
 
+In the implementation we describe here, we restrict the level of sequence nesting to a depth of one; that is, we support sequences of arrays, but not sequences of sequences of arrays. Previous work~\citep{Lippmeier:replicate} showed that the efficient implementation of more deeply nested irregular structures requires sophisticated runtime support whose SIMD implementation (e.g., for GPUs) raises an entire set of questions in its own right. However, even a single level of nesting is sufficient to encode many examples without resorting to flattening by hand, as we highlight in Chapter~\ref{chap:Evaluation}.
+
 % The more general case, where a sequence computation computes a tuple of sequences is more complex.
 % %
 % \begin{lstlisting}
@@ -70,9 +72,9 @@ minimise memory usage while keeping all processing elements fully utilised. The 
 % %
 
 \section{Flattening}
-\label{sec:flatteing-impl}
+\label{sec:flattening-impl}
 
-The design of the flattening compiler stage closely follows the what is described in~\ref{sec:flattening}. However, it differs in a few key areas.
+The design of the flattening stage closely follows the what is described in~\ref{sec:flattening}. However, it differs in a few key areas.
 %
 \begin{itemize}
 \item There are considerably more combinators in Accelerate than \ndp{}. This means there needs to be lifted versions of nearly all combinators. In many cases, there is both a regular and irregular lifted equivalent.

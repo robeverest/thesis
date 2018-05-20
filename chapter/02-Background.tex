@@ -298,7 +298,7 @@ Every access to an element @ys@ will apply the (arbitrarily expensive) function 
 
 As part of our work, we extend the array language \emph{Accelerate}. What follows is an overview of Accelerate from the perspective of a user of the language: how to write programs, how they are executed, what its limitations are, etc. In the subsequent section (\ref{sec:acc-internals}) we will explore some of the internal design of the compiler.
 
-\subsection{Introduction}
+\subsection{Overview}
 \label{sec:acc-intro}
 
 Accelerate is a parallel array language consisting of a carefully selected set of operations (combinators) on multidimensional arrays, which can be compiled efficiently to bulk-parallel SIMD hardware. It is \emph{deeply embedded} in Haskell, meaning that we write Accelerate programs with (slightly stylised) Haskell syntax.

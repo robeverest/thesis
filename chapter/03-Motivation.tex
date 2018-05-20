@@ -16,7 +16,7 @@ While flat data parallel array languages, like Accelerate, offer a powerful, hig
 \subsection{Modularity}
 \label{sec:problem_1}
 
-Recall the simple dot product example from Section~\ref{sec:background-accelerate}:
+Recall the simple dot product example from Section~\ref{sec:acc-intro}:
 %
 \begin{lstlisting}
 dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
@@ -37,9 +37,7 @@ extract the appropriate row of the matrix using @slice@, and pass this to our ex
 
 The \inl{slice} operation is a generalised array indexing function which is used to cut out \emph{entire dimensions} of an array. In @slice mat (row :. All)@,
 we extract \inl{All} columns at one specific \inl{row} of the given
-two-dimensional matrix, resulting in a one-dimensional vector.
-
-@the@ is a specialised form of indexing for extracting the value from a scalar array.
+two-dimensional matrix, resulting in a one-dimensional vector. @the@ is a specialised form of indexing for extracting the value from a scalar array.
 %
 \begin{lstlisting}
 the :: Acc (Scalar a) -> Exp a
@@ -65,7 +63,7 @@ mvm%$_{rep}$% mat vec =
     fold (+) 0 ( zipWith (*) mat vec' )
 \end{lstlisting}
 %
-Here, we are using the inverse of @slice@, @replicate@. It replicates a given array across an arbitrary set of dimensions. With @replicate (Z :. m :. All) vec@, we are treating @vec@ as a row vector and replicating it across the Y dimension $m$ times.
+The dual of @slice@, @replicate@ replicates a given array across an arbitrary set of dimensions. With @replicate (Z :. m :. All) vec@, we are treating @vec@ as a row vector and replicating it across the Y dimension $m$ times.
 
 Similar to this example, computations on irregular structures, such as sparse matrices, which are most naturally expressed in nested form, require an unwieldy encoding when we are restricted to only flat data-parallelism (see Section~\ref{sec:irregularity}).
 
@@ -117,13 +115,11 @@ Where algorithmically feasible, such devices require us to split the input into 
 \section{Irregular array sequences}
 \label{sec:sequences}
 
-The type of sequences we present are \emph{irregular sequences} of arrays. An irregular sequence of arrays is an ordered collection of arrays, where the extent (the size of the array in each dimension~\footnote{While Accelerate uses the term \emph{shape} to refer to both the type level dimensionality and the value level size of each dimension, to avoid ambiguity we will reserve shape for the former and use extent for the latter.}) of the arrays within one sequence may vary. This is in contrast to \emph{regular sequences} which are sequences that contain arrays that are all the same extent. Clearly, irregular sequences are the more general form, so opting for them in order to widen the domain of programs that we can write is the obvious choice. There are, however, advantages in having sequences that are known to be regular in terms of scheduling and code generation. In chapter \ref{chap:theory} we explore this in more detail, but here we will put aside the issue of performance and simply explore what can be expressed with our sequences. Later we will show how opting for the more general form of them does not degrade performance for the subset of programs that do not require irregularity.
+The type of sequences we present are \emph{irregular sequences} of arrays. An irregular sequence of arrays is an ordered collection of arrays, where the extent (the size of the array in each dimension\footnote{While Accelerate uses the term \emph{shape} to refer to both the type level dimensionality and the value level size of each dimension, to avoid ambiguity we will reserve shape for the former and use extent for the latter.}) of the arrays within one sequence may vary. This is in contrast to \emph{regular sequences} which are sequences that contain arrays that are all the same extent. Clearly, irregular sequences are the more general form, so opting for them in order to widen the domain of programs that we can write is the obvious choice. There are, however, advantages in having sequences that are known to be regular in terms of scheduling and code generation. In chapter \ref{chap:theory} we explore this in more detail, but here we will put aside the issue of performance and simply explore what can be expressed with our sequences. Later we will show how opting for the more general form of them does not degrade performance for the subset of programs that do not require irregularity.
 
-We denote sequences as @[Array sh e]@ in Accelerate. That can be read as a sequence of arrays of shape @sh@ containing elements of type @e@. We also support sequences of array tuples, so @[(Array sh e, Array sh' e')]@ is possible as well. This syntax, borrowed from Haskell lists, we can use because we are in the context of an embedded language and cannot clash with lists in the meta-language. In addition to being lightweight syntax, there is some semantic similarity to lists as we will demonstrate.
+We denote sequences as @[Array sh e]@ in Accelerate. That can be read as a sequence of arrays of shape @sh@ containing elements of type @e@. We also support sequences of array tuples, so @[(Array sh e, Array sh' e')]@ is possible as well. This syntax, borrowed from Haskell lists, we use because, in the context of a deep embedding, cannot clash with actual lists. %In addition to being lightweight syntax, there is some semantic similarity to lists, as we will demonstrate.
 
 % We will show that sequences of arrays in an embedded language naturally give rise to a notion of \emph{sequencing of array computations}, providing us with the freedom of scheduling required to generate code which minimises memory use in resource-constrained target architectures.
-
-In the practical implementation that we use for the benchmarks, we restrict the level of nesting to a depth of one; that is, we support sequences of arrays, but not sequences of sequences of arrays. Previous work~\citep{Lippmeier:replicate} showed that the efficient implementation of more deeply nested irregular structures requires sophisticated runtime support whose SIMD implementation (e.g., for GPUs) raises an entire set of questions in its own right. However, we would like to stress that the program transformation at the core of this work, presented in Section~\ref{sec:flattening}, is \emph{free of this limitation} and may be used on programs with deeper nesting levels. Nevertheless, we leave further exploration of this generalisation to future work.
 
 % \subsection{Accelerate sequences}
 % 'sequences are [one-shot] streams'? RCE no branching in sequences right?
@@ -202,7 +198,7 @@ In the practical implementation that we use for the benchmarks, we restrict the 
 % necessarily a single traversal of arrays in the sequence-- e.g. maxSum),
 % calling collect twice forces two lots of computation.
 
-In Accelerate, we distinguish embedded scalar computations and embedded array computations by the type constructors @Exp@ and @Acc@, respectively. Similarly, we use a new contructor, @Seq@, to mark sequence computations. Moreover, just like an array computation of type @Acc (Array sh e)@ encompasses many data-parallel scalar computations of type @Exp e@ to produce an array, a sequence computation of type @Seq [Array sh e]@ comprises many stream-parallel array computations of type @Acc (Array sh e)@. Specifically, we consider values of type @[Array sh e]@ to be sequences (or streams) of arrays, and values of type @Seq [Array sh e]@ to be \emph{computations} that, when run, produce sequences of arrays. This is an important distinction. Evaluating a value of type @Seq t@ does not trigger any sequence computation, it only yields the \emph{representation} of a sequence computation. To actually trigger a sequence computation, we must consume the sequence into an array computation to produce an array by way of the function:
+In Accelerate, we distinguish embedded scalar computations and embedded array computations by the type constructors @Exp@ and @Acc@, respectively. Similarly, we use a new constructor, @Seq@, to mark sequence computations. Moreover, just like an array computation of type @Acc (Array sh e)@ encompasses many data-parallel scalar computations of type @Exp e@ to produce an array, a sequence computation of type @Seq [Array sh e]@ comprises many stream-parallel array computations of type @Acc (Array sh e)@. Specifically, we consider values of type @[Array sh e]@ to be sequences (or streams) of arrays, and values of type @Seq [Array sh e]@ to be \emph{computations} that, when run, produce sequences of arrays. This is an important distinction. Evaluating a value of type @Seq t@ does not trigger any sequence computation, it only yields the \emph{representation} of a sequence computation. To actually trigger a sequence computation, we must consume the sequence into an array computation to produce an array by way of the function:
 %
 \begin{lstlisting}
 consume :: Arrays arr => Seq arr -> Acc arr
