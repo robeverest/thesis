@@ -988,7 +988,7 @@ Before we begin describing this fundamentally simple relation, it is first neces
 foo :: (Array sh_1 e_1, Array sh_2 e_2, ... Array sh_n e_n) -> r
 \end{lstlisting}
 %
-it is able to take any tuple value as argument; e.g. both @(Array sh1 e1, Array sh2 e2)@ and @(Array sh1 e1, Array sh2 e2, Array sh3 e3)@ would be considered valid argument types. In addition, we treat one-tuples as being equivalent to a single value. So @Array sh e@ would be a valid argument as well. While it is possible to write tuple-arity polymorphic functions in Haskell, with representation types or generic programming libraries, doing so require significant extra type-level programming that tends to permeate throughout the code, even in the parts where it is not relevant. We opt not to do this in this work as it what we describe already has a complex type level component and it would only obscure the relative simplicity of what is happening. By assuming our meta language lets us generalise over tuples and single values we sidestep the issue, leaving it to be explored in Chapter~\ref{chap:implementation}.
+it is able to take any tuple value as argument; e.g. both @(Array sh1 e1, Array sh2 e2)@ and @(Array sh1 e1, Array sh2 e2, Array sh3 e3)@ would be considered valid argument types. In addition, we treat one-tuples as being equivalent to a single value. So @Array sh e@ would be a valid argument as well. While it is possible to write tuple-arity polymorphic functions in Haskell, with representation types or generic programming libraries, doing so require significant extra type-level programming that tends to permeate throughout the code, even in the parts where it is not relevant. We opt not to do this in this chapter as what we describe already has a complex type level component and it would only obscure the core ideas of our work. By assuming our meta language lets us generalise over tuples and single values we sidestep the issue, leaving it to be addressed in Chapter~\ref{chap:implementation}.
 
 Going back to the relation, we will first look at the @Scalar@ constructor. It specifies that scalars of type @e@ are wrapped in a zero dimension array of type @Array Z e@, keeping in mind that our definition of scalar values includes tuples of scalars.
 
@@ -1033,7 +1033,7 @@ The first argument to @Vect@ is what we refer to as the lifting shape. It repres
 Vect sh_l t t_flat
 \end{lstlisting}
 %
-witnesses that @t@$^{\textit{flat}}$ can also be represented as an array of shape @sh_l@ containing values of type @t@. The difference between the two representations being that @t@$^{\textit{flat}}$ does not contain any explicit non-scalar nesting. It is important to note that the two types are not actually isomorphic. While it is possible to convert from values of @t@$^{\textit{flat}}$ to @Array sh_l  t@, the reverse direction is not always possible. That is because @Vect@ also captures information about regularity and avoidance.
+witnesses that @t@$^{\textit{flat}}$ can also be represented as an array of shape @sh_l@ containing values of type @t@. The difference between the two representations being that @t@$^{\textit{flat}}$ does not contain any non-scalar nesting. It is important to note that the two types are not actually isomorphic. While it is possible to convert from values of @t@$^{\textit{flat}}$ to @Array sh_l  t@, the reverse direction is not always possible. That is because @Vect@ also captures information about regularity and avoidance.
 
 This desire to capture the regularity makes this transform ambiguous. This is why it is necessary to treat the whole transformation as a relation. If the enclosing data-parallel context is regular, we simply increase the dimensionality of all arrays in @t@$^{\textit{norm}}$ by @sh_l@. However, if the context is irregular, we need to introduce segment descriptors, as discussed in the previous section. These two cases are covered by the alternatives @Regular@ and @Irregular@ below:
 %
@@ -1057,15 +1057,15 @@ data Vect sh_l t t_flat where
             -> Vect sh_l (t_1, t_2, .., t_n) (t_1_flat, t_2_flat, ..., t_n_flat)
 \end{lstlisting}
 %
-The @Tuple@$_\mathcal{F}$ constructor may at first glance seem unnecessary, but it allows for is different components of tuples to be flattened independently. This is crucial as one component might be used in a regular context, while another in an irregular context; similarly one might use avoidance, while the others don't, et cetera. One example of this is:
+The @Tuple@$_\mathcal{F}$ constructor may at first glance seem unnecessary, but it allows for different components of tuples to be flattened independently. This is crucial as one component might be used in a regular context, while another in an irregular context; similarly one might use avoidance, while the others don't, et cetera. One example of this is:
 %
 \begin{lstlisting}[style=ndp]
 foo :: Vector Int -> (Vector (Vector Int), Vector (Vector Int))
-foo xs = ( generate (Z:.10) (\_ -> xs)
+foo xs = ( generate (Z:.10) (\ix -> map (+ indexHead ix) xs)
          , map (\x -> generate (Z:.x) (_ -> x)) xs)
 \end{lstlisting}
 %
-Here we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is of length 10 with each vector inside it @xs@. Because each sub-vector is the same length, it is regular and thus can use a regular representation after flattening. The second component of the pair is of the same length as @xs@, but with each sub-vector of length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
+Here we are constructing a pair of nested vectors from a single non-nested vector of @Int@s. The first component of the pair is a vector of length 10 with each element the same length as @xs@. Because of this, it is regular and thus can use a regular representation after flattening. The second component is of the same length as @xs@, but with each sub-vector of length equal to an element of @xs@. Just looking at this function in isolation, we have no way of knowing the contents of @xs@ ahead of time, so we have to treat the second component as irregular.
 
 To further underpin this, consider how tuples are often used in functional programs. A programmer would expect
 %
@@ -1131,11 +1131,12 @@ The structure of the environment @Env sh_l  Gamma  Gamma_,flat@ is somewhat more
 %
 \begin{lstlisting}
 mults :: Expr [] (Vector (Vector Int))
-mults = generate (Z:.10) (\v_0 -> generate v_0 (\v_0 -> indexHead v_1 * indexHead v_0))
+mults = generate (Z:.10) (\i -> generate i (\j -> indexHead i * indexHead j))
 \end{lstlisting}
 %
 Here we are constructing the lower triangle of a multiplication table. If we want to flatten this, we have to lift the inner @generate@ from 1D to 2D, but not lift the outer generate at all. However, in the body of the inner @generate@, we are referring to a variable bound by the outer @generate@. This presents a problem. The variable was bound at a point which is not being lifted to the same dimension. We partially resolve this by tracking lifting shape in the environment, but this does not take into account the actual \emph{extent} of the outer array. Because of this, we track both regular (the @(:@$_R$@)@ alternative) and irregular contexts (the @(:@$_{Ir}$@)@ alternative). When the lifting transform encounters a generate it must extend the lifting shape by the shape of the generated array. The generation function can then be lifted under this larger context.
-%
+
+\begin{minipage}{\linewidth}
 \begin{lstlisting}[style=ndp]
 data Env sh_l Gamma Gamma_flat where
   []    :: Env Z [] []
@@ -1150,7 +1151,9 @@ data Env sh_l Gamma Gamma_flat where
         -> Expr Gamma_flat (Segments sh)
         -> Env sh_l Gamma Gamma_flat
         -> Env (sh_l++sh) Gamma Gamma_flat
+%%
 \end{lstlisting}
+\end{minipage}
 
 A key insight of the environment structure is that a closed term can only be lifted into @Z@. Intuitively, this makes sense. We only need to lift things into a higher dimension when it is used in a nested context. A closed term, by definition, is not used in any context, nested or otherwise.
 
@@ -1265,7 +1268,7 @@ outside sh = indexLeft sh ++ indexRight sh
 insides :: Expr Gamma (Segments sh') -> Expr Gamma (sh++sh'') -> Expr Gamma (sh++sh'++sh'')
 insides segs%$_{inner}$% segs%$_{outer}$% = lefts segs%$_{outer}$% `cross` segs%$_{inner}$% `cross` rights segs%$_{outer}$%
 
--- Add a fresh variable to the environment
+-- Add a fresh variable to the environment (complete definition elided)
 weaken :: Expr Gamma t -> Expr (a : Gamma) t
 \end{lstlisting}
 \caption{Auxiliary operations implemented as meta-functions}
@@ -1354,8 +1357,6 @@ Lift[|fold (\v_1 v_0. e_1) e_2 e_3|] env
  %%
  %%
  %%
- %%
- %%
 \end{lstlisting}
 \caption{The lifting transformation}
 \label{fig:lifting-transform}
@@ -1364,10 +1365,10 @@ Lift[|fold (\v_1 v_0. e_1) e_2 e_3|] env
 The transformation rules of the flattening transformation are given in Figure~\ref{fig:lifting-transform}. What follows is an explanation of how each language construct is flattened.
 
 \subsubsection{Literals}
-This is the simplest construct in terms of flattening. When it encounters a literal value, flattening returns it as it is, paired with the @Avoid_S@ constructor to signal that it does not need to be lifted.
+This is the simplest construct in terms of flattening. When literal is encountered, flattening returns it as it is, paired with the @Avoid_S@ constructor to signal that it does not need to be lifted.
 
 \subsubsection{Variables }
-When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index, then the variable itself is let unchanged but may have a series of replicates applied to it to make it \emph{fit} the current context. Because our indices are typed, we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
+When flattening a variable, the transformation refers to the auxiliary function @var@ discussed previously. If one views the variable as just a simple Debruijn index, then the variable itself is left unchanged but may have a series of replicates applied to it to make it \emph{fit} the current context. Because our indices are typed, we need to produce a witness of the relation between the type of the variable in the original term and the type in the flattened term.
 
 \subsubsection{Let bindings}
 The let-binding rule shows how bindings are introduced and how they are tracked via @Env@. The binding is first flattened, giving a @Vect@-witness. This witness is placed into the environment for flattening the body of the let-binding. This ensures that any occurrences of that variable are assigned the right type.
@@ -1377,7 +1378,7 @@ To avoid any confusion, the let-binding we are introducing here exists in the ta
 \subsubsection{Tuples and tuple projection}
 To lift a tuple constructor, we lift each component and construct a new tuple containing them. Similarly to let bindings, we assume that our meta language overloads tuple construction to support construction in our object language.
 
-In the case of tuple projection, it is similarly just a matter of projecting the same component from the lifted tuple.
+In the case of tuple projection, it is just a matter of projecting the same component from the lifted tuple.
 
 \subsubsection{Primitive operations}
 For unary operations, lifting is straightforward. We simply @map@ the operation over the lifted operand.
@@ -1405,9 +1406,9 @@ liftBinOp p r_1 r_2 e_1 e_2
 %
 
 \subsubsection{Array shapes}
-With @extent@, if the term it is applied to does not need to be flattened, then it just returns the original expression.
+With @extent@, if the expression it is applied to does not need to be flattened, then it just returns the original expression.
 
-The more interesting case occurs when the argument expression flattens in a regular context. In this case, we simply take the shape of the resulting array and strip off the outer dimensions corresponding to the lifting shape and the inner dimensions corresponding to the original array. This is done with @extent_R@.
+The more interesting case occurs when the argument expression flattens with a regular representation. In this case, we simply take the shape of the resulting array and strip off the outer dimensions corresponding to the lifting shape and the inner dimensions corresponding to the original array. This is done with @extent_R@.
 %
 \begin{lstlisting}[style=ndp]
 extent_R :: Expr Gamma (Array (sh_l++(sh++sh_1)) e_1, ...)
@@ -1415,7 +1416,7 @@ extent_R :: Expr Gamma (Array (sh_l++(sh++sh_1)) e_1, ...)
 extent_R (arr,...) = indexLeft (indexRight (extent arr))
 \end{lstlisting}
 %
-This is the one case where flattening can still be avoided even if an expression depends on an expression that had to be flattened.
+This is the one case where flattening can still be avoided even if an expression contains a subexpression that had to be flattened.
 
 We do something similar in the irregular case with @extent_Ir@, but here we cannot avoid flattening.
 %
@@ -1511,7 +1512,7 @@ replicate_A (Right ctx) t = ( Irregular (Nest Scalar)
 \label{fig:forced-lifting}
 \end{figure}
 
-ThThe lifted indexing itself is relatively straightforward. In the regular case, we take a series of slices of the input arrays.
+The lifted indexing itself is relatively straightforward. In the regular case, we take a series of slices of the input arrays.
 %
 \begin{lstlisting}[style=ndp]
 (!_R) :: Expr Gamma (Array (sh_l++sh++sh_1) e, ...)
@@ -1550,7 +1551,7 @@ The intuition behind this function is it produces a set of enumerations we wish 
 %
 \begin{lstlisting}[style=ndp]
 enum_R 2 (Z:.2) (Z:.3) = { {Z:.0, Z:.1, Z:.2}
-                         , {Z:.0, Z:.1, Z:.2} }
+                        , {Z:.0, Z:.1, Z:.2} }
 \end{lstlisting}
 %
 Here, we are producing a 2D array containing 2 enumerations of @Z:.3@. In \ref{fig:lifting-transform}, we use an enumeration like this to satisfy our generation function. This gives us the actual result we need, but to convince the type checker of the meta-language of this fact, we have to do some manipulation of the @Vect@ relation witness.
@@ -1558,8 +1559,8 @@ Here, we are producing a 2D array containing 2 enumerations of @Z:.3@. In \ref{f
 \begin{lstlisting}[style=ndp]
 nest :: Vect (sh_l++sh) e e_flat
      -> Vect sh_l (Array sh e) e_flat
-nest (Regular r)             = Regular (Nest r)
-nest (Irregular r)           = Irregular (Nest r)
+nest (Regular r)           = Regular (Nest r)
+nest (Irregular r)         = Irregular (Nest r)
 nest (Tuple (r_1, ..., r_n)) = Tuple (nest r_1, ..., nest r_n)
 \end{lstlisting}
 %
@@ -1577,7 +1578,8 @@ segmentsOf (Regular Scalar) sh   = segmented sh
 segmentsOf (Irregular Scalar) sh = prj 1 sh `cross` segmented (prj 2 sh)
 \end{lstlisting}
 %
-We then use these segments, and the current lifting shape to construct an segmented vector of enumerations.
+We then use these segments, and the current lifting shape to construct segmented enumerations.
+%
 \begin{lstlisting}[style=ndp]
 enum_Ir :: Either (Expr Gamma sh_l) (Expr Gamma (Segments sh_l))
        -> Expr Gamma (Segments sh)
