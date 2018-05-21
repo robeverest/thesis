@@ -1,5 +1,12 @@
-\documentclass[11pt,a4paper,twoside,dvipsnames]{book}
+\documentclass[11pt,a4paper,twoside,dvipsnames,final]{book}
 
+\usepackage{hyperref}
+\hypersetup{%
+    pdftitle={\thesistitle},
+    pdfauthor={Robert Clifton-Everest},
+    hidelinks,
+    breaklinks=true
+}
 \usepackage{a4wide}
 \usepackage[notext]{stix}
 \usepackage{amsfonts}
@@ -22,6 +29,7 @@
 \usepackage[sort&compress,nonamebreak,numbers]{natbib}
 \usepackage{pdf14}
 \usepackage{pdflscape}
+\usepackage{pdfpages}
 \usepackage{semantic}
 \usepackage{setspace}
 \usepackage{soul}     % \hl{} command for highlighting
@@ -29,12 +37,10 @@
 \usepackage{tabularx}
 \usepackage{textcomp}
 \usepackage[width={autoauto}]{thumbs}
-\usepackage{unswcover}
 \usepackage{upgreek}
 \usepackage{upquote}
 \usepackage{xcolor}
 % \usepackage[normalem]{ulem}
-\usepackage[breaklinks]{hyperref}
 
 \onehalfspacing
 
