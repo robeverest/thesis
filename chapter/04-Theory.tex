@@ -1163,12 +1163,9 @@ The use of this environment structure can be seen in the definition of the auxil
 -- Lifting variables
 var :: Env sh_l Gamma Gamma_flat -> Var Gamma t -> (exists t_flat. (Vect sh_l t t_flat, Expr Gamma_flat t_flat))
 var (r    :   _  ) v_0   = (r, v_0)
-var (_    :   env) v%$_{n+1}\,$% | (r, e) <- var env v_n
-                        = (r, weaken e)
-var (sh   :_R  env) v    | (r, e) <- var env v        -- Gone past a level of regular nesting
-                        = replicate_R r sh e
-var (segs :_Ir env) v    | (r, e) <- var env v        -- Gone past a level of irregular nesting
-                        = replicate_Ir r segs e
+var (_    :   env) v%$_{n+1}\,$% | (r, e) <- var env v_n = (r, weaken e)
+var (sh   :_R  env) v    | (r, e) <- var env v  = replicate_R r sh e
+var (segs :_Ir env) v    | (r, e) <- var env v  = replicate_Ir r segs e
 
 -- Replication under a regular context
 replicate_R  :: Vect sh_l t t_flat
