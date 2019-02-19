@@ -1040,7 +1040,7 @@ Because there is an array of non-scalar pairs, this has to be expanded out into 
 This normalisation process gives us a way to remove the nesting from data structures without specifying precisely what representation is necessary. Alone it is not sufficient in the case of irregular nesting. It is also actually a function even though we choose to handle it representationally. The need for that becomes apparent with the subsequent type level transformation.
 
 \subsubsection{Flattening}
-The second type relation, @Vect t t_flat@, takes an Accelerate type to its flattened form @t@$^{\textit{flat}}$ by first normalising @t@ by way of @Norm t t_norm@, and then extending the dimensionality of the normalised @t@$^{\textit{norm}}$ in either a regular or irregular form.
+The second type relation, @Vect sh_l t t_flat@, takes an Accelerate type to its flattened form @t@$^{\textit{flat}}$ by first normalising @t@ by way of @Norm t t_norm@, and then extending the dimensionality of the normalised @t@$^{\textit{norm}}$ in either a regular or irregular form.
 
 The first argument to @Vect@ is what we refer to as the lifting shape. It represents to what dimension the type has been lifted. To put it another way, a term of type
 %
@@ -1142,7 +1142,7 @@ The second argument, of type @Env sh_l  Gamma  Gamma_flat@, is an environment th
 
 Finally, the result combines the witness for the flattened result type @t_flat@ with the lifted term @Expr Gamma_,flat t_flat@, whose type parameters have been flattened to match, establishing type-preservation of the transformation.
 
-The structure of the environment @Env sh_l  Gamma  Gamma_,flat@ is somewhat more involved than usual, due to special requirements during flattening. Specifically, we need to handle access variables to brought into scope with a @generate@ outside the most immediate one. To give an example of this:
+The structure of the environment @Env sh_l  Gamma  Gamma_,flat@ is somewhat more involved than usual, due to special requirements during flattening. Specifically, we need to handle access to variables brought into scope with a @generate@ outside the most immediate one. To give an example of this:
 %
 \begin{lstlisting}
 mults :: Expr [] (Vector (Vector Int))

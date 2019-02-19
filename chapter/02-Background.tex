@@ -172,7 +172,7 @@ foo xs = map (map (\x -> 2*x + 1)) xs
 %
 We want to use lifting to remove the nested @map@. We can do that by first lifting the inner @map@ into application of the lifted function.
 %
-\begin{lstlisting}
+\begin{lstlisting}[style=ndp]
 Lift[|map (\x -> 2*x + 1)|]
 \end{lstlisting}
 %
@@ -443,18 +443,18 @@ The @fold@ we used in @dotp@ works by folding along the inner dimension. One can
 generate :: (Shape sh, Elt e) => Exp sh -> (Exp sh -> Exp e) -> Array sh e
 \end{lstlisting}
 %
-It constructs an array of the given extent using the supplied function to fill its elements. For exammple:
+It constructs an array of the given extent using the supplied function to fill its elements. For example:
 %
 \begin{lstlisting}
 evens :: Exp Int -> Acc (Vector Int)
-evens sz = generate (index1 sz) (\ix -> unindex ix * 2)
+evens sz = generate (index1 sz) (\ix -> unindex 1ix * 2)
 \end{lstlisting}
 %
 This example also shows the scalar operations @index1@ and @unindex1@.
 %
 \begin{lstlisting}
 index1 :: Exp Int -> Exp DIM1
-index1 :: Exp DIM1 -> Exp Int
+unindex1 :: Exp DIM1 -> Exp Int
 \end{lstlisting}
 %
 They convert between @Int@s and @DIM1@s.
@@ -517,7 +517,7 @@ Execution will be covered in Chapter~\ref{chap:implementation} where we build up
 
 \subsubsection{Abstract Syntax Tree}
 
-The abstract syntax tree for the core Accelerate syntax is given in \ref{lst:acc-ast} for the @Acc@ stratum and \ref{lst:exp-ast} for @Exp@. These ASTs are all parameterised by the recursive step @acc@.
+The abstract syntax tree for the core Accelerate syntax is given in Lising~\ref{lst:acc-ast} for the @Acc@ stratum and Listing~\ref{lst:exp-ast} for @Exp@. These ASTs are defined as a Generalised Algebraic Datatype (GADT) and are parameterised by the recursive step @acc@.
 
 \begin{aside}
 \begin{center}
