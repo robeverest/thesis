@@ -590,6 +590,21 @@ There are a number of other operations for working with segment descriptors. We 
 \section{Regularity-identifying flattening}
 \label{sec:flattening}
 
+\Exam{Section 4.3 mentions that it is crucial to preserve regularity since handling irregular
+structures might cause a significant runtime overhead. However, the experimental
+results presented in the thesis seems to imply that there is still a large overhead (see
+comments for Chapter 7). Does the flattening transformation offers any guarantees
+that is always possible to get rid of the irregular data representation when possible? If
+this is the case, would it be possible to prove this (either formally, or experimentally?).
+This needs to be discussed in this chapter.
+As a suggestion, maybe this chapter could take one of the use-cases (from the
+evaluation) and show in details how the flatten representation is derived and how it
+compares with the same program written in Vanilla Accelerate. This would perhaps
+also help understand where the performance gap observed in the current evaluation
+comes from and how these could be addressed. It would also be nice to have an
+example starting from the high-level all the way down to CUDA for instance (in this
+chapter or somewhere else in the thesis).}
+
 With \ndp{} defined, we can now construct a flattening transform. This transform will use \ndp{} as its source language (minus the segmented operations) and also as the target language (including the segmented operations).
 
 We will describe flattening first by example before specifying it formally. Consider the simple function of summing up elements of a vector.
@@ -1595,6 +1610,11 @@ The backtracking we rely on for lifting @generate@ could, in theory, lead to exp
 % With respect to the definition of \lstinline[style=ndp]{Env Gamma  Gamma_flat}, it is worth noting how the recursive use of lifting in the @generate@ case extends the environment with regular and irregular vectorisation contexts, which subsequently lead to the generation of the appropriate uses of \lstinline[style=ndp]{replicate_R} and \lstinline[style=ndp]{replicate_Ir} by @var@ (as discussed above).
 
 \subsection{Array reduction}
+
+\Exam{Section 4.3.3 states that programs that rely on parallelism in reduction functions will
+fail. What happens in such cases? The compiler crashes? The generated program
+crashes? It produces the incorrect result?}
+
 For @fold@, the type system ensures that the function it is applied to is a sequential computation over scalars, and the initial value is a scalar as well. This does not, however, preclude the possibility that one of them may contain parallelism. This presents a problem for us as a fold with a reduction function containing parallelism is not typically supported by data-parallel models of computing. For this reason, we leave the transform as partial in this regard. Flattening will fail for programs that rely on parallelism in reduction functions. This is true of other nested data parallel languages (e.g. Data Parallel Haskell~\cite{Chakravarty:DPH} and \nesl~\cite{Blelloch:nesl1995}),
 
 Flattening @fold@s is relatively straightforward compared to @generate@s. It all depends on the 3rd argument. If the flattening of it can be avoided, then the entire fold can be avoided. If it has a regular flattened representation, then it can be reduced just by using a normal @fold@. If the representation is irregular, then @fold_seg@ is used.

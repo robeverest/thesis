@@ -1,6 +1,9 @@
 \chapter{Background}
 \label{chap:background}
 
+\Exam{The background chapter covers the major theoretical concepts, however, I found it at
+time difficult to understand (more on this below).}
+
 While Accelerate itself is a flat data-parallel language, its design was strongly inspired by the Nested Data Parallel (NDP) model of programming, in particular, the approach taken by \citet{Blelloch:compiling1988} involving program flattening or vectorisation. Furthermore, the sequence extension of Accelerate, which is one of the main topics of this thesis, brings Accelerate closer to that of a Nested Data Parallel language. Therefore, we will start with introducing the NDP programming model and the concept of program flattening (Section~\ref{sec:ndp}), before describing the Accelerate language and its implementation in Haskell (Section~\ref{sec:background-accelerate}).
 
 While Accelerate abstracts over concrete architectures and has multiple backends, one that is of particular importance is the backend that targets Nvidia GPUs via the CUDA framework. The sequence extension provides a benefit to that backend, due to the memory limitations of GPUs, and we also introduce some other extensions specifically for it. Hence, we will also give a brief overview of CUDA (Section~\ref{sec:cuda}).
@@ -15,6 +18,12 @@ While Accelerate abstracts over concrete architectures and has multiple backends
 
 \section{The Nested Data Parallel (NDP) programming model}
 \label{sec:ndp}
+
+\Exam{The start of section 2.1 talks about
+the flattening of nested parallelism, but does not mention why this is necessary or
+desirable. This should be clearly explained at this point in the background (or perhaps
+even in the introduction) since the core of this thesis is concerned with flattening array
+sequences.}
 
 The Nested Data Parallel (NDP) programming model is the most general form of data parallelism. It allows for arbitrary nesting of parallel operations within other parallel operations, as well as parallel structures which contain other parallel structures. For example, arrays of arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
 
@@ -263,6 +272,13 @@ then it is not necessary to construct all the intermediate arrays. \citet{Keller
 \subsection{Fusion}
 \label{sec:fusion}
 
+\Exam{In section 2.1.4, it says that there is no clear way of removing the temporary in fold f
+z (map f xs). First of all, I assume the f in map f xs should be g. Then I disagree
+with this statement (unless I miss-understood something) since it should be possible to
+fuse this into a single fold (in the same style as Lift does it): fold (lambda acc,x .
+f(acc,g(x)) z xs where the lambda takes two arguments, the accumulator and an
+element from xs.}
+
 Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the program's runtime is spent reading and writing values to and from memory. This problem is not unique to flattened array programs, but is prevalent in the domain of functional programming and  collection-oriented languages generally. These languages, by their very nature, produce more intermediate structures than necessary. They facilitate and encourage programs to be written in that style because of the compositionality it yields.
 
 Fusion (or deforestation) attempts to alleviate this problem by combining adjacent transformations on structures to remove intermediate results. This has been studied extensively, both in the general area of functional programming~\cite{Wadler:1990ix,Meijer:bananas,Gill:1993de,Coutts:stream-fusion} and specifically for arrays~\cite{Chakravarty:array-fusion,Lippmeier:Guiding,McDonell:acc-optim,Lippmeier:flow-fusion}.
@@ -300,6 +316,10 @@ As part of our work, we extend the array language \emph{Accelerate}. What follow
 
 \subsection{Overview}
 \label{sec:acc-intro}
+
+\Exam{Section 2.2.1 should define the ":." operator and the notion of "snoc list". It only
+becomes clear later on what this operator does. Similarly, this section should define
+what an array "extent" is.}
 
 Accelerate is a parallel array language consisting of a carefully selected set of operations (combinators) on multidimensional arrays, which can be compiled efficiently to bulk-parallel SIMD hardware. It is \emph{deeply embedded} in Haskell, meaning that we write Accelerate programs with (slightly stylised) Haskell syntax.
 
@@ -464,6 +484,12 @@ Other array and scalar operations we will introduce as the need arises.
 
 \subsection{Internals}
 \label{sec:acc-internals}
+
+\Exam{In section 2.2.2, De Bruijin indices should be explained briefly. The paragraph talking
+about the Abstract Syntax Tree is not clear at all. This should be explained more
+clearly. It also didn't help that in this section the figures placement is all over the place
+(e.g. Listing 2.1). Please avoid breaking down listings. Overall, this entire section 2.2.2
+should be revisited and explained more clearly.}
 
 The Accelerate compilation pipeline has 4 major stages and uses two different syntax representations. The stages are:
 %

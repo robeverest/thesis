@@ -1,6 +1,15 @@
 \chapter{Sequences}
 \label{chap:motivation}
 
+\Exam{This chapter makes the case that Accelerate suffers from modularity and memory
+consumption issues. While I agree that these are serious limitations, and that being
+able to support irregular arrays is a great improvement, this chapter does not really
+explain clearly enough why supporting sequences improve modularity, which is one of
+the key claims that this thesis makes. This chapter needs to make a better case for
+this and should for instance present the applications presented in the evaluation as
+individual use-cases, explaining how they would be written in Vanilla Accelerate versus
+Accelerate+Sequences.}
+
 In this chapter, we introduce \emph{irregular array sequences} as an extension to Accelerate. This extension represents a novel way of overcoming two major limitations of flat data parallelism. We first explore these limitations in depth (Section~\ref{sec:limitations}) before describing the extension itself (Section~\ref{sec:sequences}).
 
 % This extension adds to the expressiveness of Accelerate in a significant way, but requires both a new program transformation, described in Chapter~\ref{chap:theory} and other optimisations, described in Chapter~\ref{chap:implementation}.

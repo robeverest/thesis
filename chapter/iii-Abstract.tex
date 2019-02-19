@@ -1,6 +1,8 @@
 \chapter{Abstract}
 \markboth{Abstract}{}
 
+\Exam{I did not like the start of the abstract. Well established is weak, However, ... is weak. The third sentence is a better place to start.}
+
 It is well established that declarative array languages are a high-level and expressive means of writing programs for parallel architectures. However, they are not without their disadvantages. Flat data parallel array languages are limited in their modularity as they do not support nested arrays, and parallel functions cannot be called from within parallel contexts. Nested data parallel languages solve this problem, but they also assume irregularity of all nested structures. This places a cost on nesting, a cost that is needlessly paid for a certain class of programs, those where nesting is strictly regular.
 
 A second problem is that arrays, by definition, allow for random access. This means that they must be loaded into memory in their entirety. If memory is limited, as is the case with GPUs, array languages offer no high-level means of expressing programs containing structures too large for that memory but do not require random access.

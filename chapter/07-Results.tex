@@ -1,6 +1,39 @@
 \chapter{Evaluation}
 \label{chap:Evaluation}
 
+\Exam{The evaluation chapter requires much more work.
+The first major problem with the evaluation is that it does not present the benchmarks
+implementation. This thesis makes the case for a more modular approach, however,
+this is not evaluated. It would be good to show how each benchmark is implemented
+in Vanilla Accelerate and Accelerate + Sequence. Related to this, I was under the
+impression that programs with irregular data structure were not currently supported in
+Vanilla Accelerate. So showing how these are actually Implemented without using
+Sequences would shed some light on this. This could be completely separated in it's
+own chapter or perhaps integrated in Chapter 3.}
+
+\Exam{The second major issue I have is that the results show that Accelerate+Sequence is
+most of the time slower than Vanilla Accelerate. The evaluation does not discuss this
+in great details and I found this surprising. Chapter 4 mentions that flattening is
+performed in a way to keep overheads as low as possible, yet it seems like the
+overhead are quite significant. Therefore, I would like to see a more in-depth analysis
+of the reasons for this issue and if possible, have the implementation fixed to bring the
+performance on par with Vanilla Accelerate, or if it is not possible, give much more
+details as to why this is the case and the performance improvement expected when
+the problem would be fixed.}
+
+
+\Exam{Finally, the last major issue is that the enhancements described in chapter 6 are not
+evaluated at all. For instance, there is no evaluation of the foreign function interface (I
+could easily imagine that marshalling has some costs for instance). Similarly, the GPU
+aware garbage collection is not evaluated. At the very least, it would be good to report
+how many times the garbage collector was called during execution or how much total
+memory was consumed by the benchmarks. Ultimately, the evaluation should
+demonstrate the need for garbage collection.}
+
+\Exam{On a slightly minor note, the evaluation chapter lacks some details about the
+experimental methodology. How many times each application was run? Are the
+number reported median execution time?}
+
 % \rob{Hopefully we'll actually have something good to look at here.}
 
 % \tlm{In the previous paper you mention that PageRank is not as good as it could
@@ -494,6 +527,11 @@ paper achieves 56\% the performance of the highly-tuned reference implementation
 
 \section{Audio processor}
 
+\Exam{Section 7.2 mentions that Accelerate+Sequence is able to exploit extra parallelism
+which is great. However, it is once again not clear why it cannot outperform Accelerate
+and only a vague explanation is given. In general, the thesis should go more in depth
+at explaining where these overheads come from and try to fix these.}
+
 The audio processing benchmark tests the algorithm described in
 Section~\ref{sec:streaming}, computing the @zc_stream@ part of the algorithm
 which processes the input audio data along a sliding window. Since standard
@@ -543,6 +581,10 @@ this benchmark.
 
 
 \section{MD5 Hash}
+
+\Exam{Section 7.3 mentions that pre-loading might help close the gap. How would this be
+done? Why wasn't it done? If this could be done, what would be the expected benefits?
+These questions need to be answered in this section.}
 
 The MD5 message-digest algorithm~\cite{Rivest:MD5} is a cryptographic hash
 function producing a 128-bit hash value that can be used for cryptographic and

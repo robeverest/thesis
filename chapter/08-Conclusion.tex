@@ -1,5 +1,12 @@
 \chapter{Conclusion}
 
+\Exam{The conclusion first stresses that one level of nesting for irregular array offers
+modularity and reduce memory constrains. However, the thesis currently does not do
+a good job at demonstrating this modularity aspect and reduction of memory
+constraints. The experiments also didn't demonstrate that GPU memory can be
+exhausted and didn't show the effect of the GPU-aware garbage collector and
+overhead/performance of the foreign function interface.}
+
 In this work, we argued that adding even one level of nesting to array programs offers considerable benefits to modularity. Moreover, if that form of nesting is in sequences, we get the added benefit of reduced memory constraints.
 
 In Chapter~\ref{chap:motivation} we presented the irregular array sequence as an abstract structure and how it adds an additional layer of expressiveness to the array language Accelerate. Even with a relatively small set of operations on sequences, we can express programs that were awkward and non-modular to write before, as well as programs that would otherwise require specific knowledge of the hardware to write without exhausting available GPU memory.

@@ -159,6 +159,11 @@ Recall from Section~\ref{sec:background-accelerate} that Accelerate uses represe
 
 \subsection{Segment representation}
 
+\Exam{Section 5.2.2 mentions that Sequences can only contain regular arrays. What would it
+take to extend the current system to support nesting of Sequences? Either Chapter 3,4
+or 5 should at least discuss this and explain why the current limitation is fine or what it
+would take to make it more general and support arbitrary nesting of sequences.}
+
 In Chapter~\ref{chap:theory} we left the issue of how to represent segment descriptors as abstract and implementation specific. Now that we are discussing the implementation, we must address that. We start by giving the most general definition of segment descriptors and then show how, by specialising it under the properties of sequences, we can arrive at a more optimal definition. To start with, let's suppose we want to represent segment descriptors for an irregular 3D structure. To do that, a simple definition is this.
 %
 \begin{lstlisting}[style=ndp]
@@ -312,6 +317,15 @@ data LiftedAcc acc aenv t where
 %
 
 \subsection{Lifted operations}
+
+\Exam{Section 5.2.4 explains that stencil are not supported. Why is this case? Is there a major
+limitation in the implementation that makes these hard to support? Or could these be
+easily implemented given more time? This should be discussed in details otherwise
+one might questioned the generality of the proposed approach. Another related
+question I have is with respect to the extensibility/scaling of the proposed approach. It
+would be good if this section could discuss in general what is needed to support other
+operations that might be added later into the language (or are currently in Accelerate
+such as stencils).}
 
 In \ndp{} we had to have @fold_seg@ and @generate_seg@ as the segmented versions of existing operations. In Accelerate we require both of these, as well as segmented versions of many other combinators. Some of these are available as language primitives, meaning each backend has its own implementation. Others, however, have to be implemented with the existing language constructs.
 
