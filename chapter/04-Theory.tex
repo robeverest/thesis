@@ -18,6 +18,8 @@ To efficiently implement the sequence computations described in the previous cha
 
 % \paragraph{A note on terminology:} To prevent any confusion with the Accelerate concept of @Vector@ we will refer to this transformation as flattening, as opposed to vectorisation, in this chapter.
 
+\finaltodo{This paragraph mentions things not explained or defined till later. Restructure!}
+
 \citet{Blelloch:compiling1988}'s original version of the flattening transformation was for a first-order language with built-in second-order combinators (\nesl{}) which makes it a good fit for Accelerate which has similar properties. Nevertheless, the original transformation has two severe shortcomings, which makes the generated code non-competitive: (1) it lifts code into vector space that ought to remain as is for best performance; and (2) it does not treat the important special case of operations on regular multi-dimensional arrays specially. We address point (1) by adapting the work on \emph{vectorisation avoidance}~\citep{Keller:avoidance}, and tackle point (2) with a generalisation of flattening that identifies regular (sub)computations and optimises for them. Moreover, this transformation is, in contrast to previous work, type-preserving. This is necessary for integration with Accelerate, which is built around a typed AST and is type preserving in all its compilation stages~\cite{McDonell:2015:acc-llvm}. It has the added benefit of statically guaranteeing that the transform we describe here produces type-correct programs.
 
 As a basis on which to describe the transform, we first introduce a simple language which we call \ndp{} (Section \ref{sec:ndp}). For the sake of simplicity, the language has fewer parallel operations than Accelerate. However, it is also more general in that it supports arbitrarily nested parallel arrays, as the transformation truly is an extension of similar flattening approaches. The reader will recognise its similarity to Accelerate, but unlike Accelerate we will formally specify its syntax and type system. Following that, we describe our new flattening transformation in terms of \ndp{}, using it as both the source and target language (Section~\ref{sec:flattening}).
@@ -224,6 +226,8 @@ The grammar of the language is listed in Figure~\ref{fig:language-def} and the t
 The supported literals are integer literals and the @Z@ shape descriptor. The latter is explained in more detail below. It would be trivial to support additional forms of numeric literal (e.g. floating point literals), but only integer literals are necessary to define the flattening transformation and to give illustrative examples. While not practical for implementation, we also treat all integers as unbounded. Once again, this simplifies explanation without sacrificing correspondence to the implementation.
 
 \subsection{Variables and let bindings}
+
+\finaltodo{This explanation of debruijn indices is not good. It needs to be refined. Also, syntax?}
 
 We use DeBruijn indices~\cite{DeBruijn1972} to represent variables. This is a common technique when representing ASTs to avoid issues of alpha-equivalence and fresh name generation. Briefly, they work by using the natural numbers in place of variables. The number indicates how many levels of binding outside the super-term the variable is bound. For example
 %
@@ -482,6 +486,8 @@ Z:.2:.1:.0
 \end{lstlisting}
 %
 we know that the value of the array at this index is at position
+
+\finaltodo{One reviewer didn't understand what was going on here. This needs to be made clearer. Maybe a diagram?}
 %
 \begin{lstlisting}
 0 + 3(1 + 4(2 + 5(0))) = 27

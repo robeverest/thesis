@@ -24,6 +24,8 @@ Given that Accelerate is embedded in Haskell, it might seem that Haskell's stand
 \subsection{Importing foreign functions}
 \label{sec:foreign-import}
 
+\finaltodo{Need to talk about allocation and deallocation more here. Can refer to the next section, but should introduce the basics.}
+
 Calling foreign code in an embedded Accelerate computation requires two steps: (1) the foreign function must be made accessible to the host Haskell program and (2) the foreign function must be lifted into an Accelerate computation to be available to embedded code. For the first step, we use the standard Haskell FFI. The second step requires an extension to Accelerate. We will focus on interfacing with CUDA, as it also requires us to consider data transfer. Interfacing with CPU-based libraries is much the same, but somewhat more straightforward as they work in the same memory space.
 
 As a concrete example, we use the vector dot product of the highly optimised \emph{CUDA Basic Linear Algebra Subprograms (CUBLAS)} library~\cite{cublas}. This CUBLAS function is called @cublasSDot()@; it computes the vector dot product of two arrays of 32-bit floating point values. To access it from Haskell, we use this Haskell FFI import declaration:

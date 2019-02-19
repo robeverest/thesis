@@ -6,6 +6,9 @@ programs that can be expressed is and why this domain matters. Also the current
 limitation of Accelerate should have been discussed in more details together with a
 justification as to why the work in this thesis is necessary. In particular the need for
 flattening of arrays should be clearly motivated upfront.}
+
+\finaltodo{Move material from background to here? Come up with simple example?}
+
 A programmer wanting to take advantage of the immense processing power provided by modern parallel hardware has a common but difficult choice to make. They must decide what language to use. If they use a low-level language, it raises many questions: How time-consuming will that be? How much expert knowledge of the hardware is required?  What safety guarantees are there? Will programs be portable to the hardware that comes out next year? The answers to these questions are invariably: very, a lot, not many, and no.
 
 Alternatively, they could use a high-level language. These are typically less time consuming to use, require less hardware specific knowledge, give greater safety guarantees, and can offer portability, provided there is a compiler for the target platform. They are, however, not often capable of generating native code with the desired performance properties.

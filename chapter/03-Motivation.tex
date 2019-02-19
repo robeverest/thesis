@@ -32,6 +32,8 @@ dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
 dotp xs ys = fold (+) 0 ( zipWith (*) xs ys )
 \end{lstlisting}
 %
+\finaltodo{This part is where a reader not familiar with data parallel languages might get lost. Try to introduce it more gently.}
+
 We would like to re-use this function to implement a matrix-vector product, by applying it to each row of the input matrix:
 %
 \begin{lstlisting}
