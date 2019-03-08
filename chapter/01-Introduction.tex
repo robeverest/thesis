@@ -15,7 +15,29 @@ Alternatively, they could use a high-level language. These are typically less ti
 
 Array languages have proven a robust compromise to this problem. They lift the level of abstraction beyond that of a low-level language, but still, most importantly, offer competitive performance. By expressing computations in terms of parallel arrays, there is a near limitless amount of parallelism available of which a sufficiently smart compiler can take advantage. Programs can be written by domain experts, as opposed to high-performance computing experts.
 
-A leading language in this category is Accelerate. It is highly expressive and rich with features and libraries. Embedded in Haskell, it offers combinators familiar to functional programmers, enabling them to write fast programs that closely resemble conventional Haskell programs. In this dissertation, we build upon Accelerate to widen the domain of programs that can be expressed within it. Not only that but, in doing so, we produce more general results that can be applied to any array language. Primarily, a program transformation for flattening nested parallelism that identifies and tracks the shape of nested structures.
+\finaltodo{More on array languages, disadvantages. Talk about programmer vs data representation}
+That canonical example for such languages is the vector dot product, which may be written as something like:
+
+\begin{lstlisting}
+dotp xs ys = fold (+) 0 (zipWith (*) xs ys)
+\end{lstlisting}
+
+Two different array operations are used to compute the final result. @zipWith@ combines two arrays into one and @fold@ reduces the array down to a scalar value.
+
+\finaltodo{more}
+Some information it only really makes sense to represent in a flat structure. For example, a bitmap image is most naturally thought of as a 2D array of pixels. It is hard to think of a situation where it would be useful to treat an image as an array of rows of pixels. Similarly, nested structures make the most sense for other types of data. Text processing will usually treat text documents as arrays of lines of characters and rarely as a 2D grid of characters.
+
+However, there is not always one natural structure. A matrix, for example, is could be treated as a 2D array in context, an array of rows in another, or an array of columns in yet another. This could be true even with the same program.
+
+None of this takes into account how these structures are actually represented in memory. If a programmer chooses to represent a matrix as an array of rows, they may have to pay a performance penalty for that even though the underlying data is flat.
+
+In this work, we contend that whether the programmer chooses to use nested structures should entirely be a decision based on usability. The programmer should be able to nest arrays without paying a penalty in the case that the underlying data can still be represented as flat array.
+
+A leading language in this category is Accelerate. A highly expressive language rich with features and libraries. Embedded in Haskell, it offers combinators familiar to functional programmers, enabling them to write fast programs that closely resemble conventional Haskell programs.
+
+\finaltodo{More on accelerate}
+
+In this dissertation, we build upon Accelerate to widen the domain of programs that can be expressed within it. Not only that but, in doing so, we produce more general results that can be applied to any array language. Primarily, a program transformation for flattening nested parallelism that identifies and tracks the shape of nested structures.
 
 This dissertation builds on existing work on Accelerate, and also array languages generally. Both prior to and during my contribution, numerous other researchers, also made many contributions. The research to which I have contributed is listed below. I explicitly state which work is my own:
 
