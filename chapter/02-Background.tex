@@ -19,37 +19,37 @@ While Accelerate abstracts over concrete architectures and has multiple backends
 \section{The Nested Data Parallel (NDP) programming model}
 \label{sec:ndp}
 
-\Exam{The start of section 2.1 talks about
-the flattening of nested parallelism, but does not mention why this is necessary or
-desirable. This should be clearly explained at this point in the background (or perhaps
-even in the introduction) since the core of this thesis is concerned with flattening array
-sequences.}
+% \Exam{The start of section 2.1 talks about
+% the flattening of nested parallelism, but does not mention why this is necessary or
+% desirable. This should be clearly explained at this point in the background (or perhaps
+% even in the introduction) since the core of this thesis is concerned with flattening array
+% sequences.}
 
-The Nested Data Parallel (NDP) programming model is the most general form of data parallelism. It allows for arbitrary nesting of parallel operations within other parallel operations, as well as parallel structures which contain other parallel structures. For example, arrays of arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
+The Nested Data Parallel (NDP) programming model is the most general form of data parallelism. It allows for the arbitrary nesting of parallel operations within other parallel operations, as well as parallel arrays within other parallel arrays. It is an expressive, high level and modular method of parallel programming~\cite{Blelloch:1990vl}. A variety of different useful algorithms have been implemented in languages supporting this model~\cite{Blelloch:nbody94,Blelloch:delaunay96,Blelloch:connected94}.
 
-Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in many different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, Manticore~\cite{Fluet:2007:manticore}, Lift~\cite{Steuwer:lift}, Copperhead~\cite{Catanzaro:copperhead}, Nikola~\cite{Mainland:nikola}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. These languages implement nested parallelism by a variety of means. Manticore has an execution model based on fork-join parallelism. Lift, Copperhead, and Nikola directly map nested parallel combinators to the parallel hierarchy of GPUs. The rest rely on a program transformation first described by \citet{Blelloch:compiling1988} that flattens nested parallel structures and operations while preserving program behaviour. This technique is the one we use in our work, so will describe it here.
+Nested data parallelism (NDP) was first popularised by the \nesl{} language~\cite{Blelloch:nesl1995}, but it currently exists in many different languages, albeit in a restricted form in some. These include Proteus~\cite{proteus-frontiers95}, Futhark~\cite{Henriksen:2017futhark}, Nova~\cite{collins2013nova}, Manticore~\cite{Fluet:2007:manticore}, Lift~\cite{Steuwer:lift}, Copperhead~\cite{Catanzaro:copperhead}, Nikola~\cite{Mainland:nikola}, and Data Parallel Haskell (DPH)~\cite{Jones:2008uu}. These languages implement nested parallelism by a variety of means. Manticore has an execution model based on fork-join parallelism. Lift, Copperhead, and Nikola directly map nested parallel combinators to the parallel hierarchy of GPUs. The rest rely on the program transformation we introduced in Chapter~\ref{sec:introduction}. First described by \citet{Blelloch:compiling1988}, the flattening transform flattens nested parallel programs while preserving behaviour. This technique is the one we use in our work, so will describe it here.
 % Originally, \nesl{} programs were intended to execute on vector computers. These were strictly SIMD in nature so a transform was needed that would remove nested parallel structures and nested parallel operations, while preserving program behaviour. While computer hardware has changed considerably since then, the transform itself still has much utility.
 
 % This first description of what shall now be referred to as Blelloch's Transform transformed from \plisp \citep{Sabot:paralation}, a version of lisp with simple parallel collections, to Scan-Vector Lisp, a subset of common lisp with a vector type. However, it was only possible to apply it to a subset of the source language and only to simple primitive types. Subsequently Scan-Vector Lisp was replaced with the intermediate language \vcode \citep{Blelloch:vcode1990}, a stack based data-parallel language.
 
-Blelloch's Transform works by having two distinct components. The first being a \emph{flattened array representation}, the second, program \emph{flattening}. We will address each of these in turn.
+Blelloch's Transform has two distinct components. The first being a \emph{flattened array representation}, the second, program flattening. We will address each of these in turn.
 
 \subsection{Array representation}
 \label{sec:background-representation}
 
-Computing with nested arrays requires a means for representing the nested structure in the flat memory provided by the von Neumann model.
+In practice, computing with nested arrays requires a means for representing nested structure in the flat memory provided by the von Neumann model we are used to.
 
-To give a simple example, suppose we have this nested array.
+This is an example of a simple nested array:
 %
 \begin{lstlisting}
 { {A,B,C}, {D,E}, {F,G,H,I}, {}, {J} }
 \end{lstlisting}
 %
-It is an array of arrays. The immediately obvious way of representing this is with an array of pointers. Indeed, most contemporary languages represent nested arrays in this way. Note that this is distinct from multidimensional arrays. While one can treat, say, a 2D array as an array of arrays, the fact that each \emph{subarray} has to be the same length does not make it a true nested array structure.
+Let us assume that @A@ to @J@ are scalar elements. That gives this array one level of nesting. The immediately obvious way of representing this is with an array of pointers. Indeed, most contemporary general-purpose languages represent nested arrays in this way. Note that this is distinct from multidimensional arrays. While one can treat, say, a 2D array as an array of arrays, the fact that each \emph{subarray} has to be the same length does not make it a true nested array structure.
 
-So if an array of pointers allows us to represent arbitrary nested array structures, what is the problem? It lies in the fact that modern computer hardware is optimised for locality of reference. Having different (often small) parts of the structure spread over memory with pointers between them means that any operations performed over them have to continually chase pointers and access new areas of memory. This results in many cache misses and is unworkable in the context of high performance. In addition, allocating pointer-based structures involves numerous small allocations. This means construction and destruction is expensive, and, in the context of a garbage collector, longer GC pauses.
+So if an array of pointers allows us to represent arbitrary nested structures, what is the problem? It lies in the fact that modern computer hardware is optimised for locality of reference. Having different (often small) parts of the structure spread over memory with pointers between them means that any operations performed over them have to continually chase pointers and access new areas of memory. This results in many cache misses and is unworkable in the context of high performance. In addition, allocating pointer-based structures involves numerous small allocations. This means construction and destruction is expensive, and, in the context of a garbage collector, longer GC pauses.
 
-An alternative solution to this problem, proposed by \citet{Blelloch:compiling1988}, is to \emph{flatten} the array structure. With that representation, a nested array is split into a pair consisting of an array of \emph{segment descriptors} and an array of values. The example above is represented as:
+The alternative solution to this problem, first proposed by \citet{Blelloch:compiling1988}, is \emph{flattening} the array structure, splitting an into an array of \emph{segment descriptors} and an array of values. The example above is represented as:
 %
 \begin{lstlisting}
 ({3,2,4,0,1}, {A,B,C,D,E,F,G,H,I,J})
@@ -57,7 +57,7 @@ An alternative solution to this problem, proposed by \citet{Blelloch:compiling19
 %
 The segment descriptors in the \emph{segments} array hold the size of corresponding subarray. So, we know that the first subarray contains the first 3 elements of the values vector, the next subarray 2, the next 4, etc.
 
-Further nesting levels can then be represented by adding additional segment descriptors. For example:
+Further nesting levels can then be represented by adding additional segment descriptors. For example, in this array with a nesting depth of 2:
 %
 \begin{lstlisting}
 { { {A,B}, {C} },
@@ -73,7 +73,7 @@ becomes,
 
 % In addition to flattening nested arrays, arrays of tuples can be represented by tuples of arrays. This gives the the same benefits of locality as nested array flattening.
 
-The segment descriptors we have in both of these examples are what we will refer to as \emph{size segment descriptors}, as they hold the size of subarrays. However, they are somewhat limited. Many operations with arrays in this form have worse complexity than the pointer-based equivalent. In particular, indexing, one of the most basic array operations, is no longer constant time. For example, finding the element at index 3 of the subarray at index 2 of
+The segment descriptors in both of these examples are what we will refer to as \emph{size segment descriptors}, as they hold the size of subarrays. However, they are somewhat limited. Many operations with arrays in this form have worse complexity than the pointer-based equivalent. In particular, indexing, one of the most basic array operations, is no longer constant time. For example, finding the element at index 3 of the subarray at index 2 of
 %
 \begin{lstlisting}
 ({3,2,4,0,1}, {A,B,C,D,E,F,G,H,I,J})
@@ -81,7 +81,7 @@ The segment descriptors we have in both of these examples are what we will refer
 %
 involves taking the size of all subarrays before the one at index 2 and adding them together. In this case that's $3+2=5$. Then we have to add on 3 to that, $5+3=8$. This gives us the index of @I@, which is what we want. In general, size segment descriptors require at $O(n)$ (where $n$ is the number of subarrays) work to perform indexing.
 
-There is another form of segment descriptor that solves this problem. Instead of holding the size of each subarray, it holds the offset. So, for our first example,
+There is another form of segment descriptor that solves this problem. Instead of tracking the size of each subarray, it holds the offset. So, for our first example,
 %
 \begin{lstlisting}
 ({0,3,5,9,9}, {A,B,C,D,E,F,G,H,I,J})
@@ -89,9 +89,7 @@ There is another form of segment descriptor that solves this problem. Instead of
 %
 We will call these \emph{offset segment descriptors}. In general, it takes $O(1)$ work to index arrays in this form as we already know where the corresponding subarray is located in the values vector.
 
-Another useful operation, calculating the size of a given subarray, is similarly constant time. Merely take the offset of the subarray and subtract from the offset of the next subarray. However, this does not work for the final subarray and requires accessing two different elements of the segments array, which can be a problem for fusion (more on that in Chapter~\ref{chap:implementation}).
-
-Instead, the better choice is \emph{size-offset segment descriptors} where both the size and the offset are stored.
+Another useful operation, calculating the size of a given subarray, is similarly constant time. Merely take the offset of the subarray and subtract from the offset of the next subarray. However, this does not work for the final subarray and requires accessing two different elements of the segments array, which can be a problem for fusion (more on that in Chapter~\ref{chap:implementation}). Thus, for these practical reasons, the preferred choice is \emph{size-offset segment descriptors} where both the size and the offset are stored.
 %
 \begin{lstlisting}
 ({(3,0),(2,3),(4,5),(0,9),(1,9)}, {A,B,C,D,E,F,G,H,I,J})
@@ -101,11 +99,11 @@ This has the advantages of both representations, but does require twice as much 
 
 % The former can be translated into the latter by simply applying @scanl (+)@ to the segment descriptor.
 
-It is worth noting that there are other, more complex, nested array representations in existence. In particular \citet{Lippmeier:replicate} describe one that introduces the concept of \emph{virtual segments}. They allow for arrays to be replicated without explicitly storing them more than once. This problem arises when trying to support higher-order nested parallelism: when arrays can store functions as values. In the context of this work, we do not support higher-order nested parallelism, so we will not explore it in detail.
+It is worth noting that there are other, more complex, nested array representations in existence. In particular \citet{Lippmeier:replicate} describe one that introduces the concept of \emph{virtual segments}. They allow for arrays to be replicated without explicitly storing them more than once. This problem arises when trying to support higher-order nested parallelism: when arrays can store functions as elements. In the context of this work, we do not support higher-order nested parallelism, so we will not explore it in detail.
 
 \subsection{Flattening}
 
-Flattening, or vectorisation, is a syntax-driven program transformation. When given a program as input it outputs a flat data-parallel program which is semantically equivalent but operates on a flattened array representation.
+Flattening, sometimes referred to as vectorisation, is a syntax-driven program transformation. When given a program as input it outputs a flat data-parallel program which is semantically equivalent but operates on a flattened array representation. Most, but not all (Proteus~\cite{proteus-frontiers95} being the exception), languages that rely on a flattened array representation also perform a transform like this. In Chapter~\ref{sec:introduction} we first introduced this idea, but before describing it in more detail, we must first discuss \emph{why} it is a necessary in so many cases.
 
 As an example, consider this simple program.
 %
@@ -113,14 +111,31 @@ As an example, consider this simple program.
 foo xs = map (map (\x -> 2*x + 1)) xs
 \end{lstlisting}
 %
-If we wanted to rewrite this by hand, such that it didn't rely on a nested @map@ and explicitly worked with one of the nested array representation described above, we would most likely end up with this.
+How might this program be scheduled on parallel hardware? To start with, lets simply assume that a @map@ operation can either be executed in parallel or sequentially. In the sequential case, the entire input array is processed on one thread, one element at a time, equivalent to implementing the map as a simple @for@ loop. In the parallel case, we assume that at least some of the elements of the array are processed in parallel. There are many possible ways that this could be done, but for the purposes of this explanation we only consider the fact that, for a simple @map@, the parallelism available can be exploited, at least to some degree. The best means by which an array can be divided up amongst multiple processors can depend on the hardware, but it satisfies the explanation in this section to assume that an array of length $n$ is divided up amongst $k$ processors by giving each processor a chunk of $n/k$ elements.
+
+Coming back to the example, there are therefore 4 possible ways it could be executed:
+
+\begin{enumerate}
+\item Both maps \emph{sequentially}
+\item The inner map sequentially, the outer map in parallel
+\item The outer map sequentially, the inner map in parallel
+\item Both maps in \emph{parallel}
+\end{enumerate}
+
+Of these strategies, (1) doesn't take advantage of any of the available parallelism, so is not tenable in this work; (2) only works well if xs is sufficiently large; and (3) only works if the \emph{elements} of xs are sufficiently large. (4) seems the most obvious choice, as it takes advantage of all the available parallelism. However, it assumes no cost in launching a new parallel operation. In practice, this is rarely the case.
+
+The best possible solution would be if we could treat these two nested maps as one single map. This is what the flattening transform offers us. It converts all nested array operations into operations on flat arrays. This means that as long as we have a means to execute a @map@ in parallel, we also have a means to execute a program with nested @map@s and can take advantage of all available parallelism.
+
+Before looking at the transform itself, we'll start by rewriting @foo@ by hand such that it no longer has the nested @map@s and uses the nested array representation described above.
 %
 \begin{lstlisting}
 foo' xs = let (segs, vals) = xs
           in (segs, map (\x -> 2*x + 1) vals)
 \end{lstlisting}
 %
-In this case, we are simply mapping $2x+1$ over the all the values in the nested array. It is trivial to see that @foo@ and @foo'@ are equivalent, modulo the data representation. Blelloch's flattening transformation is a method for producing these equivalent programs. It works by \emph{lifting} functions into vector space. That is, given some function
+In this case, we are simply mapping $2x+1$ for all $x$ in the nested arrays. It is trivial to see that @foo@ and @foo'@ are equivalent, just with different structures being employed. As can be seen, @foo'@ gives us exactly what we want as it preserves all available parallelism, but without requiring nested array operations.
+
+Blelloch's flattening transformation is a method for producing these equivalent programs. It works by \emph{lifting} functions into vector space. That is, given some function
 %
 \begin{lstlisting}
 f :: a -> b
@@ -272,12 +287,12 @@ then it is not necessary to construct all the intermediate arrays. \citet{Keller
 \subsection{Fusion}
 \label{sec:fusion}
 
-\Exam{In section 2.1.4, it says that there is no clear way of removing the temporary in fold f
-z (map f xs). First of all, I assume the f in map f xs should be g. Then I disagree
-with this statement (unless I miss-understood something) since it should be possible to
-fuse this into a single fold (in the same style as Lift does it): fold (lambda acc,x .
-f(acc,g(x)) z xs where the lambda takes two arguments, the accumulator and an
-element from xs.}
+% \Exam{In section 2.1.4, it says that there is no clear way of removing the temporary in fold f
+% z (map f xs). First of all, I assume the f in map f xs should be g. Then I disagree
+% with this statement (unless I miss-understood something) since it should be possible to
+% fuse this into a single fold (in the same style as Lift does it): fold (lambda acc,x .
+% f(acc,g(x)) z xs where the lambda takes two arguments, the accumulator and an
+% element from xs.}
 
 Even with vectorisation avoidance, flattened array programs typically still contain many intermediate arrays. The na\"ive compilation of them quickly drags down performance as much of the program's runtime is spent reading and writing values to and from memory. This problem is not unique to flattened array programs, but is prevalent in the domain of functional programming and  collection-oriented languages generally. These languages, by their very nature, produce more intermediate structures than necessary. They facilitate and encourage programs to be written in that style because of the compositionality it yields.
 
@@ -289,13 +304,27 @@ For simple cases, fusion can be achieved by basic first-order term rewrites. For
 map f (map g) = map (f . g)
 \end{lstlisting}
 %
-removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings, which may obscure chains of @map@s, and there is no clear way to remove the intermediate structure in expressions of the form:
+removes the intermediate structure from applying @map@ to the result of another @map@. However, this does not work in the presence of let-bindings; for example, something as simple as
 %
 \begin{lstlisting}
-fold f z (map f xs)
+let ys = map g xs in map f ys
 \end{lstlisting}
 %
-In this case, we need a more general approach.
+may not be fused without additional inlining. Additionally, there is no simple way to remove the intermediate structure in expressions of the form:
+%
+\begin{lstlisting}
+fold f z (map g xs)
+\end{lstlisting}
+%
+At first glance, this may appear untrue, as
+%
+\begin{lstlisting}
+fold f z (map g xs) = fold (\acc x. f acc (g x)) z xs
+\end{lstlisting}
+%
+However, this rule cannot be used for a parallel fold. In order to be executed in parallel, the first argument to a fold must be associative. This is not necessarily the case in the right hand side of this rule, not without knowing more about @g@. In fact, the two arguments to the function may not even be of the same type.
+
+Because of these drawbacks, a more general approach is required. One that does more than just simple rewrites of the syntax tree.
 
 On such approach is simple and well known~\cite{Claessen:obsidian-expressive,Guibas:1978jh,Elliott:2003ug}: represent an array by its size and a function mapping indices to their corresponding values. Fusion then becomes an automatic property of the data representation. This method is used successfully to optimise purely functional array programs in Repa~\cite{Keller:Repa,Lippmeier:Guiding} and Accelerate.
 
@@ -317,9 +346,9 @@ As part of our work, we extend the array language \emph{Accelerate}. What follow
 \subsection{Overview}
 \label{sec:acc-intro}
 
-\Exam{Section 2.2.1 should define the ":." operator and the notion of "snoc list". It only
-becomes clear later on what this operator does. Similarly, this section should define
-what an array "extent" is.}
+% \Exam{Section 2.2.1 should define the ":." operator and the notion of "snoc list". It only
+% becomes clear later on what this operator does. Similarly, this section should define
+% what an array "extent" is.}
 
 Accelerate is a parallel array language consisting of a carefully selected set of operations (combinators) on multidimensional arrays, which can be compiled efficiently to bulk-parallel SIMD hardware. It is \emph{deeply embedded} in Haskell, meaning that we write Accelerate programs with (slightly stylised) Haskell syntax.
 
@@ -355,7 +384,31 @@ instance Shape Z
 instance Shape sh => sh :. Int
 \end{lstlisting}
 %
-This allows for arbitrary rank shapes to be built at the type level as snoc-lists~\citep{Keller:Repa,Chakravarty:acc-cuda}. Accelerate defines some synonyms for common shapes:
+where @:.@ is the \emph{snoc} constructor defined as
+%
+\begin{lstlisting}
+data sh :. i = sh :. i
+\end{lstlisting}
+%
+It allows us to build lists where the number (and type) of elements is tracked in the type. For example
+%
+\begin{lstlisting}
+Z:.1:.2:.3 :: Z:.Int:.Int:.Int
+\end{lstlisting}
+%
+It is called the snoc constructor as it is used for lists where the rightmost element is outermost in the structure, as opposed to the traditional cons lists in Haskell where the leftmost element is outermost. The @Z@ type is just an alternative version of the unit type.
+%
+\begin{lstlisting}
+data Z = Z
+\end{lstlisting}
+%
+An array of shape @Z@ is called a scalar array and only has 1 element. This was the result type of @dotp@, via this synonym:
+%
+\begin{lstlisting}
+type Scalar = Array Z
+\end{lstlisting}
+%
+Higher dimension arrays can then be built up with @:.@. Accelerate defines some synonyms for common dimensions:
 %
 \begin{lstlisting}
 type DIM0 = Z
@@ -366,16 +419,22 @@ type DIM4 = DIM3:.Int
 ...
 \end{lstlisting}
 %
-The shape @Z@ is the scalar shape. An array of shape @Z@ is called a scalar array and only has 1 element. This was the result type of @dotp@, via this synonym:
-%
-\begin{lstlisting}
-type Scalar = Array Z
-\end{lstlisting}
-%
-Similarly, a vector is just a 1D array.
+From this it should be clear that @Vector@ is just a 1D array.
 %
 \begin{lstlisting}
 type Vector = Array DIM1
+\end{lstlisting}
+%
+When used to describe the dimensionality of an array, we say that the \emph{shape} is the type of the snoc-list and the \emph{extent} a value of that type. So for a $3\times4$ 2D array, its shape would be:
+%
+\begin{lstlisting}
+Z:.Int:.Int
+\end{lstlisting}
+%
+and its extent would be
+%
+\begin{lstlisting}
+Z:.3:.4
 \end{lstlisting}
 %
 
@@ -410,7 +469,7 @@ The type signature for @fold@ also shows how Accelerate is stratified into two d
 
 Accelerate offers many different array operations. We give a brief overview of the key ones here.
 
-@map@ and @zipWith@ behave in much the same way as those same operations over lists. For multidimensional arrays @zipWith@ yields an array of the minimum shape of all dimensions in the array. For example, if array @a@ has extent
+@map@ and @zipWith@ behave in much the same way as those same operations over lists. For multidimensional arrays, @zipWith@ yields an array of the minimum extent of all dimensions in the array. For example, if array @a@ has extent
 %
 \begin{lstlisting}
 Z :. 5 :. 4
@@ -485,11 +544,11 @@ Other array and scalar operations we will introduce as the need arises.
 \subsection{Internals}
 \label{sec:acc-internals}
 
-\Exam{In section 2.2.2, De Bruijin indices should be explained briefly. The paragraph talking
-about the Abstract Syntax Tree is not clear at all. This should be explained more
-clearly. It also didn't help that in this section the figures placement is all over the place
-(e.g. Listing 2.1). Please avoid breaking down listings. Overall, this entire section 2.2.2
-should be revisited and explained more clearly.}
+% \Exam{In section 2.2.2, De Bruijin indices should be explained briefly. The paragraph talking
+% about the Abstract Syntax Tree is not clear at all. This should be explained more
+% clearly. It also didn't help that in this section the figures placement is all over the place
+% (e.g. Listing 2.1). Please avoid breaking down listings. Overall, this entire section 2.2.2
+% should be revisited and explained more clearly.}
 
 The Accelerate compilation pipeline has 4 major stages and uses two different syntax representations. The stages are:
 %
@@ -501,49 +560,78 @@ The Accelerate compilation pipeline has 4 major stages and uses two different sy
 %
 \item Fusion and optimisation -- Tries to minimise unnecessary array traversals and optimises for optimal code generation. This produces an AST with explicit delayed arrays.
 %
-\item Code generation -- Generates LLVM IR from the AST and passes it off to the LLVM compiler. This stage is different for each backend. The CPU backend generates x86 binaries (with vector instructions) and the PTX backend generates PTX code for CUDA capable GPUs.
+\item Code generation -- Generates LLVM cide from the AST and passes it off to the LLVM compiler. This stage is different for each backend. The CPU backend generates x86 binaries (with vector instructions) and the PTX backend generates PTX code for CUDA capable GPUs.
 %
 \item Execution -- Schedules and executes the computations on the target hardware.
 \end{itemize}
 %
 
-The first of these stages we won't explore in detail, as it is not a concern of this work. It is sufficient to understand it as the process that produces the first-order syntax in Listing~\ref{lst:acc-ast} from the programmer-friendly higher-order syntax. See \citet{McDonell:acc-optim} for details on how this stage of the pipeline works.
+The first one of these stages we won't explore in detail, as it is not a concern of this work. It is sufficient to understand it as the process that produces the first-order syntax in Listing~\ref{lst:acc-ast} from the programmer-friendly higher-order syntax. See \citet{McDonell:acc-optim} for details on how this stage of the pipeline works.
 
-The fusion and optimisation stage we will discuss in Chapter~\ref{chap:implementation} where we will build upon the previous work described in \citet{McDonell:acc-optim}.
+The fusion and optimisation stage will be discussed in Chapter~\ref{chap:implementation} where we will build upon the previous work described in \citet{McDonell:acc-optim}.
 
 Code generation is not discussed in detail as it is not a focus of this work. See \citet{McDonell:2015:acc-llvm} for how LLVM is generated from the AST in Listing~\ref{lst:acc-ast}.
 
-Execution will be covered in Chapter~\ref{chap:implementation} where we build upon the previous work\cite{McDonell:acc-optim,McDonell:2015:acc-llvm,Chakravarty:acc-cuda}.
+Execution will be covered in Chapter~\ref{chap:implementation} where we build upon previous work\cite{McDonell:acc-optim,McDonell:2015:acc-llvm,Chakravarty:acc-cuda}.
 
 \subsubsection{Abstract Syntax Tree}
 
-The abstract syntax tree for the core Accelerate syntax is given in Lising~\ref{lst:acc-ast} for the @Acc@ stratum and Listing~\ref{lst:exp-ast} for @Exp@. These ASTs are defined as a Generalised Algebraic Datatype (GADT) and are parameterised by the recursive step @acc@.
+The abstract syntax tree for the core Accelerate language is split into two parts, much like the higher-order syntax exposed to the programmer. Listing~\ref{lst:acc-ast} contains a the data type for @Acc@ stratum, the syntax nodes representing array operations, and Listing~\ref{lst:exp-ast} contains the data type for @Exp@, the nodes for simple scalar operations. Given the number of features that Accelerate offers, there are many different AST nodes. We won't describe all of them here, just describe the basic structure and enough information to form a basis for the remaining chapters.
 
-\begin{aside}
-\begin{center}
-\textbf{Aside: Tying the recursive knot}
-\end{center}
-
-By having the recursive step as a parameter, rather than simply making a GADT recursive, we are able to annotate it differently in different contexts. For our AST, not only can we recover the recursion with @OpenAcc@
+A key to understanding the definition of the ASTs is know that they are designed to be \emph{type-preserving}, and extensible. Looking at the definition for @Acc@ we have:
 %
 \begin{lstlisting}
-newtype OpenAcc aenv a = OpenAcc (PreOpenAcc OpenAcc aenv a)
+data PreOpenAcc acc aenv a where
 \end{lstlisting}
 %
-we are also able to, for example, annotate it with labels for user-debugging,
+From right to left, the type parameters are: the type of term, the type of all free variables in the term (assuming it is an open term), and a recursive continuation. We will describe how these are used to construct an AST, but firstly some background.
+
+The AST uses DeBruijn indices~\cite{DeBruijn1972} to represent variables. This is a common technique when representing ASTs to avoid issues of alpha-equivalence and fresh name generation. Briefly, they work by using the natural numbers in place of variables. The number indicates how many levels of binding outside the super-term the variable is bound. For example
 %
 \begin{lstlisting}
-data LabelledAcc aenv a = LabelledAcc String (PreOpenAcc OpenAcc aenv a)
+let A in
+  let B in
+    (v_0 + v_1) / 2
 \end{lstlisting}
-\end{aside}
+%
+Here, we're calculating the average of @A@ and @B@, where @A@ and @B@ are normal terms. The let-bindings do not introduce a named variable, but the bound values can be referred to with numbers. @v_0@ refers to B as it is the closest binding going up the tree, and @v_1@ refers to @A@ as it is the next binding up.
 
-The second parameter is a snoc-list, represented using left-nested tuples, of the environment. The @Alet@ AST form allows for new variables to be introduced into the environment and @Avar@ extracts their values. @Idx@ is a typed De Bruijn index.
+The typed DeBruijn indices Accelerate uses are defined as
 %
 \begin{lstlisting}
 data Idx env a where
   ZeroIdx :: Idx (env,a) a
   SuccIdx :: Idx env a
           -> Idx (env,b) a
+\end{lstlisting}
+%
+The @env@ parameter is a a left-nested tuple (equivalent to a snoc-list; see \ref{sec:background-accelerate}). The AST node for a variable is then:
+%
+\begin{lstlisting}
+  Avar :: Arrays a
+       => Idx aenv a
+       -> PreOpenAcc acc aenv a
+\end{lstlisting}
+%
+New variables are introduced to environment via let-binding:
+%
+\begin{lstlisting}
+  Alet :: Arrays a
+       => acc aenv a
+       -> acc (aenv,a) b
+       -> PreOpenAcc acc aenv b
+\end{lstlisting}
+
+These AST nodes also show how the first parameter, the recursive continuation, is used. Rather than simply making the GADT recursive, having an explicit type argument ,used whenever recursion is expected, allows additional information and structure to be embedded in the AST. The original recursion can be recovered with @OpenAcc@:
+%
+\begin{lstlisting}
+newtype OpenAcc aenv a = OpenAcc (PreOpenAcc OpenAcc aenv a)
+\end{lstlisting}
+%
+But also, for example, an AST can be annotated with labels for user-debugging,
+%
+\begin{lstlisting}
+data LabelledAcc aenv a = LabelledAcc String (PreOpenAcc OpenAcc aenv a)
 \end{lstlisting}
 %
 
@@ -557,8 +645,6 @@ We can see the relation between the @Exp@ and @Acc@ strata by looking at the def
 \end{lstlisting}
 %
 we observe how both arguments are parameterised by the recursive @acc@ step and array environment but have closed scaler environments. We say that these term are open with respect to the array environment but closed with respect to the scalar environment.
-
-Tuples are represented with a snoc-list, like the environment.
 
 In the case of @Index@, we see how the recursive step can be embedded in @Exp@ terms. While the type system does not enforce this, for most stages of the compilation we have as an invariant that any @Acc@ term embedded in @Exp@ must be an @Avar@. This way, scalar computations can access arrays previously computed but cannot compute further array operations.
 
@@ -592,16 +678,12 @@ data PreOpenAcc acc aenv a where
 
   Avar     :: Arrays a
            => Idx aenv a
-           -> acc aenv a
+           -> PreOpenAcc acc aenv a
 
   Alet     :: (Arrays a, Arrays b)
            => acc            aenv     a
            -> acc            (aenv,a) b
            -> PreOpenAcc acc aenv     b
-
-  Atuple   :: Arrays t
-           => Atuple     acc aenv (TupleRepr t)
-           -> PreOpenAcc acc aenv t
   ...
 \end{lstlisting}
 

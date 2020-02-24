@@ -227,7 +227,7 @@ The supported literals are integer literals and the @Z@ shape descriptor. The la
 
 \subsection{Variables and let bindings}
 
-\finaltodo{This explanation of debruijn indices is not good. It needs to be refined. Also, syntax?}
+\finaltodo{This explanation of debruijn indices is not good. It needs to be refined. Also, syntax? It has been moved to background, so may need to be removed entirely?}
 
 We use DeBruijn indices~\cite{DeBruijn1972} to represent variables. This is a common technique when representing ASTs to avoid issues of alpha-equivalence and fresh name generation. Briefly, they work by using the natural numbers in place of variables. The number indicates how many levels of binding outside the super-term the variable is bound. For example
 %

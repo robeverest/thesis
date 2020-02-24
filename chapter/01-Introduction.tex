@@ -1,13 +1,5 @@
 \chapter{Introduction}
-
-\Exam{I found the introduction to the thesis to be extremely short. I would have loved to see
-a little more about motivating the use of array languages, what the domain of
-programs that can be expressed is and why this domain matters. Also the current
-limitation of Accelerate should have been discussed in more details together with a
-justification as to why the work in this thesis is necessary. In particular the need for
-flattening of arrays should be clearly motivated upfront.}
-
-\finaltodo{Move material from background to here? Come up with simple example?}
+\label{sec:introduction}
 
 A programmer wanting to take advantage of the immense processing power provided by modern parallel hardware has a common but difficult choice to make. They must decide what language to use. If they use a low-level language, it raises many questions: How time-consuming will that be? How much expert knowledge of the hardware is required?  What safety guarantees are there? Will programs be portable to the hardware that comes out next year? The answers to these questions are invariably: very, a lot, not many, and no.
 
@@ -15,31 +7,104 @@ Alternatively, they could use a high-level language. These are typically less ti
 
 Array languages have proven a robust compromise to this problem. They lift the level of abstraction beyond that of a low-level language, but still, most importantly, offer competitive performance. By expressing computations in terms of parallel arrays, there is a near limitless amount of parallelism available of which a sufficiently smart compiler can take advantage. Programs can be written by domain experts, as opposed to high-performance computing experts.
 
-\finaltodo{More on array languages, disadvantages. Talk about programmer vs data representation}
-That canonical example for such languages is the vector dot product, which may be written as something like:
+The canonical example for such languages is the vector dot product, which may be written as:
 
 \begin{lstlisting}
 dotp xs ys = fold (+) 0 (zipWith (*) xs ys)
 \end{lstlisting}
 
-Two different array operations are used to compute the final result. @zipWith@ combines two arrays into one and @fold@ reduces the array down to a scalar value.
+Here, two different array operations are used to compute the final result. @zipWith (*)@ combines the two input arrays, via element-wise multiplication, into one. @fold (+) 0@ reduces the array down, adding up all the elements in its input, to a scalar value.
 
-\finaltodo{more}
-Some information it only really makes sense to represent in a flat structure. For example, a bitmap image is most naturally thought of as a 2D array of pixels. It is hard to think of a situation where it would be useful to treat an image as an array of rows of pixels. Similarly, nested structures make the most sense for other types of data. Text processing will usually treat text documents as arrays of lines of characters and rarely as a 2D grid of characters.
+A @zipWith@ operation has trivial parallel semantics, as each scalar operation it performs is independent. With @fold@ it's not as simple; the final result depends on all inputs. In the general case, a @foldl@ or @foldr@ precludes parallel execution. However, if the scalar operation is known to be associative then a tree reduction can be used to implement a direction-less @fold@.
 
-However, there is not always one natural structure. A matrix, for example, is could be treated as a 2D array in context, an array of rows in another, or an array of columns in yet another. This could be true even with the same program.
+Similarly, other operations like @map@, prefix sums (@scan@s), permutations, and stencil convolutions all either have parallel semantics naturally or can be given them by restricting them in a way that still makes them useful.
 
-None of this takes into account how these structures are actually represented in memory. If a programmer chooses to represent a matrix as an array of rows, they may have to pay a performance penalty for that even though the underlying data is flat.
+This programming model is attractive to existing functional programmers as it uses combinators they are already familiar with, and compose nicely to form elegant programs. Where such programmer may be surprised, however, what happens when they \emph{nest} them. We say an array operation is nested if it happens during the execution of another array operation. For example, in @map (map (+1)) xs@, the inner @map@ is a nested array operation. Similarly, we say an array is nested if its elements contain other arrays. Both @xs@ and the result of the expression are nested arrays.
 
-In this work, we contend that whether the programmer chooses to use nested structures should entirely be a decision based on usability. The programmer should be able to nest arrays without paying a penalty in the case that the underlying data can still be represented as flat array.
+Specifically, we divide arrays into two categories, flat and nested. Flat arrays contain only elements of the same statically known size. An array of 32-bit integers is flat, as is an array of pairs of 32-bit integers, but an array of arrays of integers is not.
 
-A leading language in this category is Accelerate. A highly expressive language rich with features and libraries. Embedded in Haskell, it offers combinators familiar to functional programmers, enabling them to write fast programs that closely resemble conventional Haskell programs.
+% While many useful programs can be naturally expressed using exclusively flat arrays, a fact that is evident by the number of languages that do not support nesting (see Chapter~\ref{chap:background}), nested arrays are strictly more expressive.
 
-\finaltodo{More on accelerate}
+Some information it only makes sense to treat as a flat structure. For example, a bitmap image is most naturally thought of as a 2D array of pixels. It is difficult to imagine a situation where an image would be viewed as an array of rows of pixels. Similarly, nested structures make the most sense for other types of data. For example, a text document would more likely be viewed as an array of lines of characters, and only as a 2D grid of characters when displayed in an editor.
 
-In this dissertation, we build upon Accelerate to widen the domain of programs that can be expressed within it. Not only that but, in doing so, we produce more general results that can be applied to any array language. Primarily, a program transformation for flattening nested parallelism that identifies and tracks the shape of nested structures.
+However, there is not always one obvious way to structure data. A matrix, for example, could be treated as a 2D array in one context, an array of rows in another, or an array of columns in yet another. This could be true even within the same program, so there is no one true matrix representation.
 
-This dissertation builds on existing work on Accelerate, and also array languages generally. Both prior to and during my contribution, numerous other researchers, also made many contributions. The research to which I have contributed is listed below. I explicitly state which work is my own:
+Note that here we are not talking about the actual representation of these structures in memory, but rather how the programmer writes programs to traverse and manipulate them. This is a subtle distinction that it is important to highlight. A commonly accepted defintion of a type is it is the set of values of which a value that type can hold. However, in most programming languages the type also defines how the value is represented in memory. In practice, if a programmer chooses to define a matrix as an array of rows, the representation in memory will be different than if they had defined it as a 2D array. The compiler is not aware that all the rows are the same length so uses the most general data structure. Thus a performance penalty is paid for nesting, even though in this case it is used only because it happens to be the most natural way to express the program.
+
+In this work, we contend that whether the programmer chooses to use nested structures should entirely be a decision based on usability. The programmer should be able to nest arrays freely, only paying a penalty when actually necessary.
+
+Some languages do partially mitigate this problem by using more efficient nested array representations. Nested Data Parallel (NDP) languages (like \nesl\  or Data Parallel Haskell) \emph{flatten} nested arrays. This involves separating the structure of a nested array from its data. For example this array
+%
+\begin{lstlisting}
+{ {A,B,C}, {D,E}, {F,G,H,I}, {}, {J} }
+\end{lstlisting}
+%
+could be represented as
+%
+\begin{lstlisting}
+({3,2,4,0,1}, {A,B,C,D,E,F,G,H,I,J})
+\end{lstlisting}
+%
+The first component of the above pair stores the length of each sub-array and the second the actual values\footnote{In practice, most modern languages supporting NDP use a more complicated representation than this. This is discussed in Chapter~\ref{chap:background}}. These languages flatten arrays like this as it offers considerably more efficiency when compared to classic pointer-based representations.
+
+Flattening removes some of the cost of working with nested data, but not all of it. Maintaining the list of subarray lengths involves extra computation, plus if parallelism is to be preserved across both the inner and outer arrays there are typically scheduling overheads in dealing with inner arrays of different lengths.
+
+Furthermore, this approach typically requires the flattening of array programs as well as the arrays themselves. Programs are transformed to directly use the flattened array representation. By doing this, nested array operations are also removed. To give a short simple example:
+%
+\begin{lstlisting}
+map (map (+1)) xs
+\end{lstlisting}
+%
+would be flattened to
+%
+\begin{lstlisting}
+(fst xs, map (+1) (snd xs))
+\end{lstlisting}
+%
+Here, @fst@ and @snd@ are used to access the subarray lengths and the values respectively. There is now only one map, removing the nested array operation.
+
+This transform is performed to make parallel scheduling of array operations easier. By not having to launch parallel operations from within other parallel operations the workload remains balanced. Moreover, on certain architectures (e.g. GPUs), there is no, or little, hardware support for launching parallel computations from within a parallel context.
+
+By flattening programs in this way, languages are able to support both nested arrays and the nested array operations they imply. However, such flattening transformations treat all nested arrays as if the best representation for them is the one above. Even though nested arrays \emph{can} store elements varying in size, not all of them necessarily \emph{do}. A programmer treating a matrix as an array of rows would pay a penalty for this representation over a flat one.
+
+Because of these issues, many languages opt not to support nested arrays and instead only support flat array programs. If they do support nested array operations, those operations are treated as sequential. However, many useful programs can be expressed using only flat arrays, particularly programs in the image processing domain. Furthermore, programs that would normally rely on nested arrays can be flattened by hand, albeit often obfuscating the original program structure.
+
+A leading language in this category is Accelerate. A highly expressive language rich with features and libraries. Embedded in Haskell, it offers combinators familiar to functional programmers, enabling them to write fast programs that closely resemble conventional Haskell programs. In fact, the code examples above are valid Accelerate programs.
+
+The the dot-product example alongside its type signature demonstrates how Accelerate is embedded in Haskell and the basic constructs of the language.
+
+\begin{lstlisting}
+dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
+dotp xs ys = fold (+) 0 (zipWith (*) xs ys)
+\end{lstlisting}
+
+The type @Acc a@ can be thought of as an Accelerate computation that when evaluated will produce an @a@. So, in this case, each of the argument computations produces a one-dimensional array (@Vector@) of @Float@ when evaluated. This function then returns a new computation which, when evaluated, yields a single (@Scalar@) result as output.
+
+The signatures for @fold@ and @zipWith@ show how the language prevents certain forms of nested parallelism.
+
+\begin{lstlisting}
+zipWith :: (Shape sh, Elt a, Elt b)
+        => (Exp a -> Exp b -> Exp c)
+        -> Acc (Array sh a)
+        -> Acc (Array sh b)
+        -> Acc (Array sh c)
+fold :: (Shape sh, Elt e)
+     => (Exp e -> Exp e -> Exp e)
+     -> Acc (Array (sh:.Int) e)
+     -> Acc (Array sh e)
+\end{lstlisting}
+
+@Elt@ is a type class that restricts array elements to those of a fixed size. This make nested arrays unrepresentable. Similarly, @Exp@ represents scalar computations, those not involving arrays. In this context, products of scalar values are themselves considered scalar. Under this system, it would seem that all nested parallelism is statically excluded. Unfortunately, however, there are certain cases where @Acc@ computations can be embedded in @Exp@ computations, in particular to support indexing.
+
+These signatures also highlight how Accelerate treats multidimensional arrays. Operations like @zipWith@ and @fold@ are rank-polymorphic. @zipWith@ will element-wise combine any 2 arrays of the same rank. @fold@ reduces an array along its innermost dimension. The type variable @sh@ corresponds to the \emph{shape} of the array. This will be explored in more depth in Section~\ref{sec:background-accelerate}, but for now it sufficient to consider a shape as representing the rank of an array. The rank is tracked at the type level, but not the actual dimensions themselves. The @:.@ operator adds an extra dimension, so if a shape @sh@ has represents a rank @n@ then @sh:.Int@ is @n+1@.
+
+With these combinators and others described in later chapters, it is possible to write many useful programs. Accelerate programs exist for physics simulations, image processing, graph processing, and password cracking, to name a few.
+
+What does all this tell us? Yes, nested parallelism in array languages is possible, but it carries with it an unnecessary extra cost in the common case when the nesting is regular. Not having nesting is possible, and such languages are still useful, but it makes it hard to express certain programs. What we want is the best of both worlds. We want nesting, but only pay the price for it when we have to.
+
+In this dissertation, we build upon Accelerate to widen the domain of useful programs that can be written in it. Not only that but, in doing so, we produce more general results that can be applied to any array language. Primarily, a program transformation for flattening nested parallelism that identifies and tracks the shape of nested structures.
+
+This dissertation builds on existing work on Accelerate, but also array languages generally. During my enrolment as a PhD student, numerous other researchers also contributed to Accelerate and at times I collaborated with them. The research to which I have been a major contributor is listed below. I explicitly state which work is my own and which I did in close collaboration with others:
 
 \begin{itemize}
 \item We have developed a new parallel structure in addition to the parallel array. Irregular arrays sequences offer a single level of nesting with greater modularity and controlled memory usage (Chapter~\ref{chap:motivation}).
